@@ -161,3 +161,33 @@ export const getTransactionHistory = async (req, res) => {
     res.status(500).json({ error: 'Gagal mengambil riwayat transaksi' });
   }
 };
+
+
+export const getLowStockProducts = async (req, res) => {
+  try {
+    const products = await prisma.product.findMany({
+      where: {
+        // Logika utama: stok saat ini lebih kecil atau sama dengan stok minimum
+        stock: {
+          lte: prisma.product.fields.minimumStock,
+        },
+      },
+      orderBy: {
+        stock: 'asc', // Tampilkan yang paling kritis (stok terendah) dulu
+      },
+      select: {
+        id: true,
+        name: true,
+        productCode: true,
+        stock: true,
+        minimumStock: true,
+      },
+    });
+
+    res.json(products);
+    
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengambil data stok rendah' });
+  }
+};
