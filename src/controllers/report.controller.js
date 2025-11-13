@@ -84,16 +84,80 @@ export const getReportSummary = async (req, res) => {
   }
 };
 
-/*
-CATATAN PENTING:
-Agar 'newCustomersToday' berfungsi, pastikan Anda menambahkan field createdAt
-di model 'Customer' pada schema.prisma Anda.
+/**
+ * @desc    Mendapatkan riwayat transaksi (dengan filter & pagination)
+ * @route   GET /api/reports/transactions
+ */
+export const getTransactionHistory = async (req, res) => {
+  try {
+    // 1. Ambil parameter query
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const { startDate, endDate } = req.query; // Format: 'YYYY-MM-DD'
 
-model Customer {
-  // ... field lain
-  createdAt DateTime @default(now()) // <--- TAMBAHKAN INI
-}
+    const skip = (page - 1) * limit;
 
-Jika Anda menambahkannya, jangan lupa jalankan 'npm run db:migrate' lagi.
-Jika tidak, Anda bisa hapus bagian 'newCustomersToday'.
-*/
+    // 2. Buat 'where' clause (filter)
+    const where = {
+      status: 'COMPLETED',
+    };
+
+    // Tambahkan filter tanggal jika ada
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0); // Set ke awal hari
+
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Set ke akhir hari
+
+      where.createdAt = {
+        gte: start,
+        lte: end,
+      };
+    }
+    
+    // (Nanti kita bisa tambahkan filter 'customerId' atau 'userId' di sini)
+
+    // 3. Jalankan 2 query (data + total)
+    const [transactions, totalCount] = await prisma.$transaction([
+      // Query 1: Ambil data transaksi
+      prisma.transaction.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: 'desc', // Tampilkan yang terbaru dulu
+        },
+        // Sertakan nama pelanggan dan kasir
+        include: {
+          customer: {
+            select: { name: true },
+          },
+          user: { // 'user' adalah kasir yang login
+            select: { name: true },
+          },
+        },
+      }),
+      // Query 2: Ambil total data
+      prisma.transaction.count({ where }),
+    ]);
+
+    // 4. Hitung total halaman
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // 5. Kirim respon
+    res.json({
+      data: transactions,
+      pagination: {
+        totalCount,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengambil riwayat transaksi' });
+  }
+};

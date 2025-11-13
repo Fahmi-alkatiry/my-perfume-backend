@@ -96,3 +96,17 @@ export const login = async (req, res) => {
     res.status(500).json({ error: 'Gagal login' });
   }
 };
+
+/**
+ * @desc    Mendapatkan data user yang sedang login
+ * @route   GET /api/auth/me
+ */
+export const getMe = async (req, res) => {
+  // Kita mendapatkan 'req.user' dari middleware 'protect'
+  // yang sudah kita buat sebelumnya
+  if (req.user) {
+    res.json(req.user);
+  } else {
+    res.status(404).json({ error: 'User tidak ditemukan' });
+  }
+};
