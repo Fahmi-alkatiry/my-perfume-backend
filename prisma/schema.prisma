@@ -1,0 +1,181 @@
+// ======================================
+// PRISMA SCHEMA - MY PERFUME POS SYSTEM
+// ======================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================================
+// ENUMS
+// ======================================
+
+enum UserRole {
+  ADMIN
+  CASHIER
+}
+
+enum TransactionStatus {
+  COMPLETED
+  CANCELLED
+  PENDING
+}
+
+enum StockHistoryType {
+  IN
+  OUT
+  ADJUSTMENT // Penyesuaian
+}
+
+enum ProductType {
+  PERFUME
+  BOTTLE
+}
+
+// ======================================
+// MODELS
+// ======================================
+
+model User {
+  id             Int            @id @default(autoincrement()) @map("id_pengguna")
+  name           String         @map("nama_pengguna")
+  username       String         @unique
+  password       String
+  role           UserRole
+
+  transactions   Transaction[]
+  stockHistories StockHistory[]
+
+  @@map("pengguna")
+}
+
+model Customer {
+  id                  Int            @id @default(autoincrement()) @map("id_pelanggan")
+  name                String         @map("nama_pelanggan")
+  phoneNumber         String?        @unique @map("nomor_pelanggan")
+  points              Int            @default(0) @map("poin_pelanggan")
+  lastTransactionAt   DateTime?      @map("transaksi_terakhir")
+
+  createdAt DateTime @default(now()) @map("tanggal_dibuat")
+
+  transactions        Transaction[]
+  pointHistories      PointHistory[] // Relasi untuk audit poin
+
+  @@map("pelanggan")
+}
+
+model Product {
+  id                   Int                 @id @default(autoincrement()) @map("id_produk")
+  name                 String              @map("nama_produk")
+  type                 ProductType         @map("jenis_produk")
+  description          String?
+  stock                Int                 @default(0)
+  minimumStock         Int                 @default(5) @map("stok_minimum")
+  purchasePrice        Decimal             @map("harga_beli")
+  sellingPrice         Decimal             @map("harga_jual")
+  productCode          String              @unique @map("kode_produk")
+
+  transactionDetails   TransactionDetail[]
+  stockHistories       StockHistory[]
+
+  @@map("produk")
+}
+
+model PaymentMethod {
+  id            Int           @id @default(autoincrement()) @map("id_metode")
+  name          String        @map("nama_metode")
+  description   String?       @map("keterangan")
+
+  transactions  Transaction[]
+
+  @@map("metode_pembayaran")
+}
+
+model Transaction {
+  id               Int                 @id @default(autoincrement()) @map("id_transaksi")
+  createdAt        DateTime            @default(now()) @map("waktu_transaksi")
+
+  totalPrice       Decimal             @map("total_harga") // Subtotal sebelum diskon
+  totalDiscount    Decimal?            @default(0) @map("diskon_total")
+  discountByPoints Decimal?            @default(0) @map("diskon_poin")
+  finalAmount      Decimal             @map("total_akhir") // Harga yang benar-benar dibayar
+  totalMargin      Decimal?            @default(0) @map("total_margin")
+
+  pointsEarned     Int?                @default(0) @map("poin_didapat")
+  pointsUsed       Int?                @default(0) @map("poin_digunakan")
+
+  status           TransactionStatus   @default(COMPLETED)
+
+  paymentMethodId  Int?                @map("id_metode")
+  paymentMethod    PaymentMethod?      @relation(fields: [paymentMethodId], references: [id])
+
+  userId           Int?                @map("id_pengguna")
+  user             User?               @relation(fields: [userId], references: [id])
+
+  customerId       Int?                @map("id_pelanggan")
+  customer         Customer?           @relation(fields: [customerId], references: [id])
+
+  details          TransactionDetail[]
+  pointHistories   PointHistory[]      // Relasi untuk audit poin
+
+  @@map("transaksi")
+}
+
+model TransactionDetail {
+  id                         Int         @id @default(autoincrement()) @map("id_detail")
+  quantity                   Int         @map("jumlah")
+  priceAtTransaction         Decimal     @map("harga_jual_saat_itu")
+  purchasePriceAtTransaction Decimal     @map("harga_beli_saat_itu")
+  discount                   Decimal?    @default(0)
+  subtotal                   Decimal     // (quantity * priceAtTransaction) - discount
+  totalCostOfGoods           Decimal     @map("total_harga_pokok") // (quantity * purchasePriceAtTransaction)
+  totalMargin                Decimal     @map("total_margin")      // (subtotal - totalCostOfGoods)
+
+  transactionId              Int         @map("id_transaksi")
+  transaction                Transaction @relation(fields: [transactionId], references: [id])
+
+  productId                  Int         @map("id_produk")
+  product                    Product     @relation(fields: [productId], references: [id])
+
+  @@map("detail_transaksi")
+}
+
+model StockHistory {
+  id            Int              @id @default(autoincrement()) @map("id_riwayat")
+  type          StockHistoryType // IN / OUT / ADJUSTMENT
+  quantity      Int              // jumlah perubahan stok
+  notes         String?          @map("keterangan")
+  referenceType String?          @map("tipe_referensi") // 'Transaction', 'Manual', 'Adjustment'
+  referenceId   Int?             @map("id_referensi")
+  createdAt     DateTime         @default(now()) @map("tanggal")
+
+  productId     Int              @map("id_produk")
+  product       Product          @relation(fields: [productId], references: [id])
+
+  userId        Int?             @map("id_pengguna")
+  user          User?            @relation(fields: [userId], references: [id])
+
+  @@map("riwayat_stok")
+}
+
+// MODEL BARU YANG DIREKOMENDASIKAN
+model PointHistory {
+  id            Int        @id @default(autoincrement()) @map("id_riwayat_poin")
+  createdAt     DateTime   @default(now()) @map("tanggal")
+
+  pointsChange  Int        // Bisa positif (dapat) atau negatif (tukar)
+  reason        String     // "Earned", "Redeemed", "Cancellation", "Bonus", "Expired"
+  
+  customerId    Int        @map("id_pelanggan")
+  customer      Customer   @relation(fields: [customerId], references: [id])
+
+  transactionId Int?       @map("id_transaksi")
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+
+  @@map("riwayat_poin")
+}
