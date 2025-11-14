@@ -1,7 +1,7 @@
 
 // backend/src/routes/report.routes.js
 import { Router } from 'express';
-import { getLowStockProducts, getReportSummary, getTransactionHistory } from '../controllers/report.controller.js';
+import { getLowStockProducts, getReportSummary, getStockHistory, getTransactionHistory } from '../controllers/report.controller.js';
 import { protect, admin } from '../middleware/auth.middleware.js'; // Impor middleware
 
 const router = Router();
@@ -15,5 +15,7 @@ router.get('/reports/summary', protect, admin, getReportSummary);
 router.get('/reports/transactions', protect, admin, getTransactionHistory);
 
 router.get('/reports/low-stock', protect, admin, getLowStockProducts);
+
+router.get('/reports/stock-history', protect, admin, getStockHistory);
 
 export default router;

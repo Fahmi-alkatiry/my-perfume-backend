@@ -191,3 +191,79 @@ export const getLowStockProducts = async (req, res) => {
     res.status(500).json({ error: 'Gagal mengambil data stok rendah' });
   }
 };
+
+
+/**
+ * @desc    Mendapatkan riwayat stok (dengan filter & pagination)
+ * @route   GET /api/reports/stock-history
+ */
+export const getStockHistory = async (req, res) => {
+  try {
+    // 1. Ambil parameter query
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const { type, search } = req.query; // Filter: 'IN' / 'OUT' / 'ADJUSTMENT' & 'search' by product
+
+    const skip = (page - 1) * limit;
+
+    // 2. Buat 'where' clause (filter)
+    const where = {};
+
+    // Filter berdasarkan Tipe
+    if (type) {
+      where.type = type; // Cth: 'IN'
+    }
+
+    // Filter berdasarkan Nama atau Kode Produk (relasi)
+    if (search) {
+      where.product = {
+        OR: [
+          { name: { contains: search } },
+          { productCode: { contains: search } },
+        ],
+      };
+    }
+
+    // 3. Jalankan 2 query (data + total)
+    const [history, totalCount] = await prisma.$transaction([
+      // Query 1: Ambil data riwayat
+      prisma.stockHistory.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: 'desc', // Tampilkan yang terbaru dulu
+        },
+        // Sertakan nama produk dan nama kasir/admin
+        include: {
+          product: {
+            select: { name: true, productCode: true },
+          },
+          user: {
+            select: { name: true },
+          },
+        },
+      }),
+      // Query 2: Ambil total data
+      prisma.stockHistory.count({ where }),
+    ]);
+
+    // 4. Hitung total halaman
+    const totalPages = Math.ceil(totalCount / limit);
+
+    // 5. Kirim respon
+    res.json({
+      data: history,
+      pagination: {
+        totalCount,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengambil riwayat stok' });
+  }
+};
