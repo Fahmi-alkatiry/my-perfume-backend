@@ -9,7 +9,7 @@ export const getAllPaymentMethods = async (req, res) => {
   try {
     // Biasanya tidak perlu pagination, ambil semua
     const methods = await prisma.paymentMethod.findMany({
-      orderBy: { name: 'asc' },
+      orderBy: { name: 'desc' },
     });
     res.json(methods);
   } catch (error) {

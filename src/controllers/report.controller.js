@@ -136,6 +136,9 @@ export const getTransactionHistory = async (req, res) => {
           user: { // 'user' adalah kasir yang login
             select: { name: true },
           },
+          paymentMethod: {
+            select: { name: true },
+          },
         },
       }),
       // Query 2: Ambil total data
@@ -265,5 +268,82 @@ export const getStockHistory = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Gagal mengambil riwayat stok' });
+  }
+};
+
+
+
+/**
+ * @desc    Mendapatkan data untuk grafik dashboard
+ * @route   GET /api/reports/charts
+ */
+export const getDashboardCharts = async (req, res) => {
+  try {
+    const today = new Date();
+    
+    // --- 1. DATA GRAFIK GARIS (Tren Penjualan 7 Hari Terakhir) ---
+    const salesTrend = [];
+    
+    // Loop untuk 7 hari ke belakang
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      
+      const startOfDay = new Date(d.setHours(0, 0, 0, 0));
+      const endOfDay = new Date(d.setHours(23, 59, 59, 999));
+
+      // Hitung total penjualan hari itu
+      const aggregations = await prisma.transaction.aggregate({
+        where: {
+          createdAt: { gte: startOfDay, lt: endOfDay },
+          status: 'COMPLETED',
+        },
+        _sum: { finalAmount: true },
+      });
+
+      // Format tanggal (misal: "18 Nov")
+      const dateLabel = startOfDay.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+      
+      salesTrend.push({
+        date: dateLabel,
+        total: aggregations._sum.finalAmount || 0,
+      });
+    }
+
+    // --- 2. DATA GRAFIK BATANG (5 Produk Terlaris Bulan Ini) ---
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    // Group by productId dan sum quantity
+    const topProductsRaw = await prisma.transactionDetail.groupBy({
+      by: ['productId'],
+      where: {
+        transaction: {
+          createdAt: { gte: startOfMonth, lt: endOfMonth },
+          status: 'COMPLETED',
+        },
+      },
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: 'desc' } },
+      take: 5,
+    });
+
+    // Ambil nama produk (karena groupBy Prisma tidak bisa include relation langsung dengan mudah)
+    const topProducts = await Promise.all(topProductsRaw.map(async (item) => {
+      const product = await prisma.product.findUnique({
+        where: { id: item.productId },
+        select: { name: true },
+      });
+      return {
+        name: product ? product.name : 'Unknown',
+        sales: item._sum.quantity,
+      };
+    }));
+
+    res.json({ salesTrend, topProducts });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengambil data grafik' });
   }
 };
