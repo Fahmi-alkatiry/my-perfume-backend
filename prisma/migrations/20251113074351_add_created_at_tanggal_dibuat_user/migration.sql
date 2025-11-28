@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE `pelanggan` ADD COLUMN `tanggal_dibuat` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3);
