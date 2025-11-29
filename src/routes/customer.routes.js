@@ -6,6 +6,7 @@ import {
   getCustomerById,
   updateCustomer,
   deleteCustomer,
+  getCustomerHistory,
 } from '../controllers/customer.controller.js';
 
 // --- 1. IMPOR MIDDLEWARE ---
@@ -23,5 +24,7 @@ router.route('/customers/:id')
   .get(protect, getCustomerById) // Siapapun bisa LIHAT by ID
   .put(protect, updateCustomer) // Siapapun (Kasir) bisa UPDATE (misal poin)
   .delete(protect, admin, deleteCustomer); // Hanya Admin bisa HAPUS
+
+  router.get('/customers/:id/history', protect, getCustomerHistory);
 
 export default router;

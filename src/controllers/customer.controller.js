@@ -133,3 +133,38 @@ export const deleteCustomer = async (req, res) => {
     res.status(500).json({ error: 'Gagal menghapus pelanggan' });
   }
 };
+
+/**
+ * @desc    Melihat riwayat belanja spesifik pelanggan
+ * @route   GET /api/customers/:id/history
+ */
+export const getCustomerHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const history = await prisma.transaction.findMany({
+      where: {
+        customerId: Number(id),
+        status: 'COMPLETED' // Hanya transaksi sukses
+      },
+      take: 20, // Ambil 20 transaksi terakhir saja
+      orderBy: {
+        createdAt: 'desc',
+      },
+      include: {
+        details: {
+          include: {
+            product: {
+              select: { name: true } // Kita butuh nama produknya
+            }
+          }
+        }
+      }
+    });
+
+    res.json(history);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengambil riwayat pelanggan' });
+  }
+};
