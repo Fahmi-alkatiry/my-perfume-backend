@@ -351,3 +351,36 @@ export const getDashboardCharts = async (req, res) => {
     res.status(500).json({ error: "Gagal mengambil data grafik" });
   }
 };
+
+
+export const getShiftHistory = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    // Ambil data shift
+    const [shifts, totalCount] = await prisma.$transaction([
+      prisma.shift.findMany({
+        skip,
+        take: limit,
+        orderBy: { startTime: 'desc' }, // Yang terbaru di atas
+        include: {
+          user: { select: { name: true } } // Sertakan nama kasir
+        }
+      }),
+      prisma.shift.count()
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    res.json({
+      data: shifts,
+      pagination: { totalCount, totalPages, currentPage: page, limit }
+    });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengambil riwayat shift' });
+  }
+};

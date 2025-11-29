@@ -10,6 +10,7 @@ import customerRoutes from "./routes/customer.routes.js";
 import authRoutes from "./routes/auth.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 import paymentMethodRoutes from './routes/paymentMethod.routes.js';
+import shiftRoutes from './routes/shift.routes.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -32,6 +33,8 @@ app.use("/api", transactionRoutes);
 app.use("/api", customerRoutes);
 app.use("/api", reportRoutes);
 app.use("/api", paymentMethodRoutes);
+app.use("/api", shiftRoutes);
+
 // Jalankan server
 app.listen(port, () => {
   console.log(`[Server]: API running at http://localhost:${port}`);

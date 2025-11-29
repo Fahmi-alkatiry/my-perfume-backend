@@ -37,6 +37,11 @@ enum ProductType {
   BOTTLE
 }
 
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
 // ======================================
 // MODELS
 // ======================================
@@ -50,6 +55,7 @@ model User {
 
   transactions   Transaction[]
   stockHistories StockHistory[]
+  shifts    Shift[]
 
   @@map("pengguna")
 }
@@ -179,3 +185,23 @@ model PointHistory {
 
   @@map("riwayat_poin")
 }
+
+model Shift {
+  id            Int       @id @default(autoincrement()) @map("id_shift")
+  startTime     DateTime  @default(now()) @map("waktu_mulai")
+  endTime       DateTime? @map("waktu_selesai")
+  
+  startCash     Decimal   @map("modal_awal")      // Uang modal di laci
+  endCash       Decimal?  @map("uang_fisik_akhir") // Uang yang dihitung kasir saat tutup
+  
+  expectedCash  Decimal?  @map("uang_seharusnya") // Modal Awal + Total Penjualan Tunai
+  difference    Decimal?  @map("selisih")         // EndCash - ExpectedCash
+  
+  status        ShiftStatus @default(OPEN)
+  
+  userId        Int       @map("id_pengguna")
+  user          User      @relation(fields: [userId], references: [id])
+
+  @@map("shift_kasir")
+}
+
