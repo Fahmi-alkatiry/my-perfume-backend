@@ -215,3 +215,99 @@ export const createTransaction = async (req, res) => {
     }
   }
 };
+
+/**
+ * @desc    Membatalkan transaksi (VOID)
+ * @route   POST /api/transactions/:id/cancel
+ */
+
+export const cancelTransaction = async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id; // Admin yang melakukan pembatalan
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Ambil data transaksi beserta detailnya
+      const transaction = await tx.transaction.findUnique({
+        where: { id: Number(id) },
+        include: { details: true, customer: true }
+      });
+
+      if (!transaction) throw new Error("Transaksi tidak ditemukan");
+      if (transaction.status === 'CANCELLED') throw new Error("Transaksi sudah dibatalkan sebelumnya");
+
+      // 2. Kembalikan Stok Produk
+      for (const item of transaction.details) {
+        // Tambah stok kembali
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stock: { increment: item.quantity } }
+        });
+
+        // Catat di history stok (IN karena pembatalan)
+        await tx.stockHistory.create({
+          data: {
+            productId: item.productId,
+            quantity: item.quantity,
+            type: 'IN',
+            notes: `Pembatalan Transaksi #${transaction.id}`,
+            referenceType: 'Cancellation',
+            referenceId: transaction.id,
+            userId: userId
+          }
+        });
+      }
+
+      // 3. Revisi Poin Pelanggan (Jika ada pelanggan)
+      if (transaction.customerId) {
+        let pointsChange = 0;
+        
+        // a. Tarik kembali poin yang didapat (Kurangi)
+        if (transaction.pointsEarned > 0) {
+            pointsChange -= transaction.pointsEarned;
+            await tx.pointHistory.create({
+                data: {
+                    customerId: transaction.customerId,
+                    pointsChange: -transaction.pointsEarned,
+                    reason: `Cancel TRX #${transaction.id} (Revert Earned)`,
+                    transactionId: transaction.id
+                }
+            });
+        }
+
+        // b. Kembalikan poin yang dipakai diskon (Tambah)
+        if (transaction.pointsUsed > 0) {
+            pointsChange += transaction.pointsUsed;
+            await tx.pointHistory.create({
+                data: {
+                    customerId: transaction.customerId,
+                    pointsChange: transaction.pointsUsed,
+                    reason: `Cancel TRX #${transaction.id} (Refund Used)`,
+                    transactionId: transaction.id
+                }
+            });
+        }
+
+        // Update total poin di master customer
+        if (pointsChange !== 0) {
+            await tx.customer.update({
+                where: { id: transaction.customerId },
+                data: { points: { increment: pointsChange } }
+            });
+        }
+      }
+
+      // 4. Ubah Status Transaksi
+      await tx.transaction.update({
+        where: { id: transaction.id },
+        data: { status: 'CANCELLED' }
+      });
+    });
+
+    res.json({ message: "Transaksi berhasil dibatalkan" });
+
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message || "Gagal membatalkan transaksi" });
+  }
+};

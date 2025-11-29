@@ -1,5 +1,5 @@
 // backend/src/controllers/report.controller.js
-import { prisma } from '../lib/prisma.js';
+import { prisma } from "../lib/prisma.js";
 
 /**
  * @desc    Mendapatkan ringkasan laporan (dashboard)
@@ -29,7 +29,7 @@ export const getReportSummary = async (req, res) => {
           gte: startOfToday, // Lebih besar atau sama dengan awal hari ini
           lt: endOfToday, // Lebih kecil dari awal hari besok
         },
-        status: 'COMPLETED', // Hanya hitung yang selesai
+        status: "COMPLETED", // Hanya hitung yang selesai
       },
       _sum: {
         finalAmount: true, // Total pendapatan (setelah diskon)
@@ -48,7 +48,7 @@ export const getReportSummary = async (req, res) => {
             gte: startOfToday,
             lt: endOfToday,
           },
-          status: 'COMPLETED',
+          status: "COMPLETED",
         },
       },
       _sum: {
@@ -59,7 +59,8 @@ export const getReportSummary = async (req, res) => {
     // --- 4. Query Pelanggan Baru Hari Ini ---
     const newCustomersCount = await prisma.customer.count({
       where: {
-        createdAt: { // Asumsi Anda punya field createdAt di model Customer
+        createdAt: {
+          // Asumsi Anda punya field createdAt di model Customer
           gte: startOfToday,
           lt: endOfToday,
         },
@@ -80,7 +81,7 @@ export const getReportSummary = async (req, res) => {
     res.json(summary);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Gagal mengambil ringkasan laporan' });
+    res.status(500).json({ error: "Gagal mengambil ringkasan laporan" });
   }
 };
 
@@ -99,7 +100,7 @@ export const getTransactionHistory = async (req, res) => {
 
     // 2. Buat 'where' clause (filter)
     const where = {
-      status: 'COMPLETED',
+      status: "COMPLETED",
     };
 
     // Tambahkan filter tanggal jika ada
@@ -115,7 +116,7 @@ export const getTransactionHistory = async (req, res) => {
         lte: end,
       };
     }
-    
+
     // (Nanti kita bisa tambahkan filter 'customerId' atau 'userId' di sini)
 
     // 3. Jalankan 2 query (data + total)
@@ -126,18 +127,24 @@ export const getTransactionHistory = async (req, res) => {
         skip,
         take: limit,
         orderBy: {
-          createdAt: 'desc', // Tampilkan yang terbaru dulu
+          createdAt: "desc", // Tampilkan yang terbaru dulu
         },
         // Sertakan nama pelanggan dan kasir
         include: {
           customer: {
             select: { name: true },
           },
-          user: { // 'user' adalah kasir yang login
+          user: {
+            // 'user' adalah kasir yang login
             select: { name: true },
           },
           paymentMethod: {
             select: { name: true },
+          },
+          details: {
+            include: {
+              product: { select: { name: true, productCode: true } },
+            },
           },
         },
       }),
@@ -158,13 +165,11 @@ export const getTransactionHistory = async (req, res) => {
         limit,
       },
     });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Gagal mengambil riwayat transaksi' });
+    res.status(500).json({ error: "Gagal mengambil riwayat transaksi" });
   }
 };
-
 
 export const getLowStockProducts = async (req, res) => {
   try {
@@ -176,7 +181,7 @@ export const getLowStockProducts = async (req, res) => {
         },
       },
       orderBy: {
-        stock: 'asc', // Tampilkan yang paling kritis (stok terendah) dulu
+        stock: "asc", // Tampilkan yang paling kritis (stok terendah) dulu
       },
       select: {
         id: true,
@@ -188,13 +193,11 @@ export const getLowStockProducts = async (req, res) => {
     });
 
     res.json(products);
-    
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Gagal mengambil data stok rendah' });
+    res.status(500).json({ error: "Gagal mengambil data stok rendah" });
   }
 };
-
 
 /**
  * @desc    Mendapatkan riwayat stok (dengan filter & pagination)
@@ -235,7 +238,7 @@ export const getStockHistory = async (req, res) => {
         skip,
         take: limit,
         orderBy: {
-          createdAt: 'desc', // Tampilkan yang terbaru dulu
+          createdAt: "desc", // Tampilkan yang terbaru dulu
         },
         // Sertakan nama produk dan nama kasir/admin
         include: {
@@ -264,14 +267,11 @@ export const getStockHistory = async (req, res) => {
         limit,
       },
     });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Gagal mengambil riwayat stok' });
+    res.status(500).json({ error: "Gagal mengambil riwayat stok" });
   }
 };
-
-
 
 /**
  * @desc    Mendapatkan data untuk grafik dashboard
@@ -280,15 +280,15 @@ export const getStockHistory = async (req, res) => {
 export const getDashboardCharts = async (req, res) => {
   try {
     const today = new Date();
-    
+
     // --- 1. DATA GRAFIK GARIS (Tren Penjualan 7 Hari Terakhir) ---
     const salesTrend = [];
-    
+
     // Loop untuk 7 hari ke belakang
     for (let i = 6; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
-      
+
       const startOfDay = new Date(d.setHours(0, 0, 0, 0));
       const endOfDay = new Date(d.setHours(23, 59, 59, 999));
 
@@ -296,14 +296,17 @@ export const getDashboardCharts = async (req, res) => {
       const aggregations = await prisma.transaction.aggregate({
         where: {
           createdAt: { gte: startOfDay, lt: endOfDay },
-          status: 'COMPLETED',
+          status: "COMPLETED",
         },
         _sum: { finalAmount: true },
       });
 
       // Format tanggal (misal: "18 Nov")
-      const dateLabel = startOfDay.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
-      
+      const dateLabel = startOfDay.toLocaleDateString("id-ID", {
+        day: "numeric",
+        month: "short",
+      });
+
       salesTrend.push({
         date: dateLabel,
         total: aggregations._sum.finalAmount || 0,
@@ -316,34 +319,35 @@ export const getDashboardCharts = async (req, res) => {
 
     // Group by productId dan sum quantity
     const topProductsRaw = await prisma.transactionDetail.groupBy({
-      by: ['productId'],
+      by: ["productId"],
       where: {
         transaction: {
           createdAt: { gte: startOfMonth, lt: endOfMonth },
-          status: 'COMPLETED',
+          status: "COMPLETED",
         },
       },
       _sum: { quantity: true },
-      orderBy: { _sum: { quantity: 'desc' } },
+      orderBy: { _sum: { quantity: "desc" } },
       take: 5,
     });
 
     // Ambil nama produk (karena groupBy Prisma tidak bisa include relation langsung dengan mudah)
-    const topProducts = await Promise.all(topProductsRaw.map(async (item) => {
-      const product = await prisma.product.findUnique({
-        where: { id: item.productId },
-        select: { name: true },
-      });
-      return {
-        name: product ? product.name : 'Unknown',
-        sales: item._sum.quantity,
-      };
-    }));
+    const topProducts = await Promise.all(
+      topProductsRaw.map(async (item) => {
+        const product = await prisma.product.findUnique({
+          where: { id: item.productId },
+          select: { name: true },
+        });
+        return {
+          name: product ? product.name : "Unknown",
+          sales: item._sum.quantity,
+        };
+      })
+    );
 
     res.json({ salesTrend, topProducts });
-
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Gagal mengambil data grafik' });
+    res.status(500).json({ error: "Gagal mengambil data grafik" });
   }
 };
