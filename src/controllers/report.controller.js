@@ -134,7 +134,7 @@ export const getTransactionHistory = async (req, res) => {
         // Sertakan nama pelanggan dan kasir
         include: {
           customer: {
-            select: { name: true },
+            select: { name: true, phoneNumber: true },
           },
           user: {
             // 'user' adalah kasir yang login
