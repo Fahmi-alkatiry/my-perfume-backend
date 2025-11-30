@@ -6,42 +6,33 @@ import { prisma } from '../lib/prisma.js';
  */
 export const getAllProducts = async (req, res) => {
   try {
-    // 1. Ambil parameter query
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
 
-    // 2. Hitung 'skip' (offset) untuk pagination
     const skip = (page - 1) * limit;
 
-    // 3. Buat 'where' clause untuk Prisma
     const where = search
       ? {
-          // Cari jika 'search' ada di 'name' ATAU 'productCode'
           OR: [
             { name: { contains: search } },
             { productCode: { contains: search } },
           ],
         }
-      : {}; // Jika tidak ada search, 'where' -nya kosong
+      : {};
 
-    // 4. Gunakan $transaction untuk 2 query (data + total count)
     const [products, totalCount] = await prisma.$transaction([
-      // Query 1: Ambil data produk dengan pagination & search
       prisma.product.findMany({
         where,
         skip,
         take: limit,
-        orderBy: { name: 'asc' },
+        orderBy: { productCode: 'asc' }, // ⬅️ Urut berdasarkan kode produk
       }),
-      // Query 2: Ambil total jumlah data YANG SESUAI filter
       prisma.product.count({ where }),
     ]);
 
-    // 5. Hitung total halaman
     const totalPages = Math.ceil(totalCount / limit);
 
-    // 6. Kirim respon dalam format baru
     res.json({
       data: products,
       pagination: {
@@ -56,7 +47,6 @@ export const getAllProducts = async (req, res) => {
     res.status(500).json({ error: 'Gagal mengambil data produk' });
   }
 };
-
 /**
  * @desc    Membuat produk baru
  */
