@@ -108,3 +108,62 @@ export const endShift = async (req, res) => {
     res.status(500).json({ error: 'Gagal menutup shift' });
   }
 };
+
+/**
+ * @desc    Mengoreksi data shift (Admin Only)
+ * @route   PUT /api/shifts/:id
+ */
+export const updateShift = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { startCash, endCash } = req.body;
+
+    // 1. Ambil data shift lama
+    const oldShift = await prisma.shift.findUnique({
+      where: { id: Number(id) }
+    });
+
+    if (!oldShift) return res.status(404).json({ error: 'Shift tidak ditemukan' });
+
+    // 2. Siapkan data baru
+    const newStartCash = startCash !== undefined ? Number(startCash) : Number(oldShift.startCash);
+    const newEndCash = endCash !== undefined ? Number(endCash) : (oldShift.endCash ? Number(oldShift.endCash) : null);
+
+    // 3. Hitung ulang logika keuangan
+    // Kita perlu tahu total penjualan.
+    // Rumus lama: Expected = Start + Sales  =>  Sales = Expected - Start
+    // (Asumsi shift sudah closed dan punya expectedCash. Jika belum closed, sales belum dihitung final, tapi startCash bisa diubah).
+    
+    let newExpectedCash = oldShift.expectedCash;
+    let newDifference = oldShift.difference;
+
+    if (oldShift.status === 'CLOSED' && oldShift.expectedCash !== null) {
+      const totalSales = Number(oldShift.expectedCash) - Number(oldShift.startCash);
+      
+      // Hitung ulang Expected (Modal Baru + Penjualan Lama)
+      newExpectedCash = newStartCash + totalSales;
+
+      // Hitung ulang Selisih (Uang Fisik Baru - Expected Baru)
+      if (newEndCash !== null) {
+        newDifference = newEndCash - newExpectedCash;
+      }
+    }
+
+    // 4. Update Database
+    const updatedShift = await prisma.shift.update({
+      where: { id: Number(id) },
+      data: {
+        startCash: newStartCash,
+        endCash: newEndCash,
+        expectedCash: newExpectedCash,
+        difference: newDifference
+      }
+    });
+
+    res.json(updatedShift);
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengupdate shift' });
+  }
+};
