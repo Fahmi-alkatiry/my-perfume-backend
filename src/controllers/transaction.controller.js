@@ -317,3 +317,64 @@ export const cancelTransaction = async (req, res) => {
     res.status(400).json({ error: error.message || "Gagal membatalkan transaksi" });
   }
 };
+
+/**
+ * @desc    Menambahkan pelanggan ke transaksi yang sudah selesai (Claim Poin)
+ * @route   PUT /api/transactions/:id/assign-customer
+ */
+export const assignCustomerToTransaction = async (req, res) => {
+  const { id } = req.params; // ID Transaksi
+  const { customerId } = req.body; // ID Pelanggan yang mau ditautkan
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1. Cek Transaksi
+      const transaction = await tx.transaction.findUnique({
+        where: { id: Number(id) }
+      });
+
+      if (!transaction) throw new Error("Transaksi tidak ditemukan");
+      if (transaction.customerId) throw new Error("Transaksi ini sudah memiliki pelanggan.");
+      if (transaction.status !== 'COMPLETED') throw new Error("Hanya transaksi sukses yang bisa di-claim.");
+
+      // 2. Hitung Poin yang seharusnya didapat
+      // Rumus: Total Bayar / 30.000
+      const pointsEarned = Math.floor(Number(transaction.finalAmount) / 30000);
+
+      // 3. Update Transaksi
+      await tx.transaction.update({
+        where: { id: Number(id) },
+        data: {
+          customerId: Number(customerId),
+          pointsEarned: pointsEarned
+        }
+      });
+
+      // 4. Update Pelanggan (Tambah Poin) & Buat History
+      if (pointsEarned > 0) {
+        await tx.customer.update({
+          where: { id: Number(customerId) },
+          data: { 
+            points: { increment: pointsEarned },
+            lastTransactionAt: new Date() 
+          }
+        });
+
+        await tx.pointHistory.create({
+          data: {
+            customerId: Number(customerId),
+            pointsChange: pointsEarned,
+            reason: `Claim Poin Susulan TRX #${transaction.id}`,
+            transactionId: transaction.id
+          }
+        });
+      }
+    });
+
+    res.json({ message: "Pelanggan berhasil ditautkan dan poin ditambahkan." });
+
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: error.message || "Gagal update transaksi" });
+  }
+};
