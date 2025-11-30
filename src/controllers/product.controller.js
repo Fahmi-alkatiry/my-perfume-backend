@@ -180,3 +180,64 @@ export const addStock = async (req, res) => {
     res.status(500).json({ error: 'Gagal menambah stok' });
   }
 };
+
+
+
+/**
+ * @desc    Melakukan Stok Opname (Penyesuaian Stok)
+ * @route   POST /api/products/:id/adjust-stock
+ */
+export const adjustStock = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { actualStock, notes } = req.body; // actualStock = Stok Fisik di Rak
+    const userId = req.user.id;
+
+    const newStock = Number(actualStock);
+
+    if (isNaN(newStock) || newStock < 0) {
+      return res.status(400).json({ error: 'Stok fisik harus angka valid >= 0' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Ambil data produk saat ini untuk tahu stok lama
+      const product = await tx.product.findUnique({
+        where: { id: Number(id) }
+      });
+
+      if (!product) throw new Error("Produk tidak ditemukan");
+
+      // 2. Hitung selisih
+      // Contoh: Sistem 10, Fisik 8. Selisih = 8 - 10 = -2
+      const difference = newStock - product.stock;
+
+      if (difference === 0) {
+        throw new Error("Jumlah stok sama, tidak ada perubahan.");
+      }
+
+      // 3. Update Stok Produk menjadi angka fisik yang baru
+      await tx.product.update({
+        where: { id: Number(id) },
+        data: { stock: newStock }
+      });
+
+      // 4. Catat Riwayat (ADJUSTMENT)
+      await tx.stockHistory.create({
+        data: {
+          productId: Number(id),
+          quantity: difference, // Bisa positif atau negatif
+          type: 'ADJUSTMENT',
+          notes: notes || 'Stok Opname',
+          referenceType: 'StockTaking',
+          userId: userId
+        }
+      });
+    });
+
+    res.json({ message: 'Stok berhasil disesuaikan' });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message || 'Gagal menyesuaikan stok' });
+  }
+};

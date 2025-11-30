@@ -7,6 +7,7 @@ import {
   updateProduct,
   deleteProduct,
   addStock,
+  adjustStock,
 } from '../controllers/product.controller.js';
 
 // --- 1. IMPOR MIDDLEWARE ---
@@ -25,5 +26,7 @@ router.route('/products/:id')
   .delete(protect, admin, deleteProduct); // Hanya Admin bisa HAPUS
 
 router.post('/products/:id/add-stock', protect, admin, addStock);
+
+router.post('/products/:id/adjust-stock', protect, admin, adjustStock);
 
 export default router;
