@@ -8,77 +8,72 @@ import { prisma } from "../lib/prisma.js";
 export const getReportSummary = async (req, res) => {
   try {
     // --- 1. Tentukan Rentang Tanggal (Hari Ini) ---
-    // Mengatur 'hari ini' berdasarkan zona waktu server
     const today = new Date();
-    const startOfToday = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate()
-    ); // Pukul 00:00:00
-    const endOfToday = new Date(
-      today.getFullYear(),
-      today.getMonth(),
-      today.getDate() + 1
-    ); // Besok, pukul 00:00:00
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 
-    // --- 2. Query Agregasi Transaksi ---
-    // Kita gunakan 'aggregate' untuk menghitung SUM dan COUNT
+    // --- 2. Query Agregasi Transaksi (PEMASUKAN) ---
     const transactionSummary = await prisma.transaction.aggregate({
       where: {
-        createdAt: {
-          gte: startOfToday, // Lebih besar atau sama dengan awal hari ini
-          lt: endOfToday, // Lebih kecil dari awal hari besok
-        },
-        status: "COMPLETED", // Hanya hitung yang selesai
+        createdAt: { gte: startOfToday, lt: endOfToday },
+        status: "COMPLETED",
       },
       _sum: {
-        finalAmount: true, // Total pendapatan (setelah diskon)
-        totalMargin: true, // Total profit/margin
+        finalAmount: true, // Omzet
+        totalMargin: true, // Gross Profit
       },
-      _count: {
-        id: true, // Total jumlah transaksi
-      },
+      _count: { id: true },
     });
 
     // --- 3. Query Agregasi Produk Terjual ---
     const itemsSoldSummary = await prisma.transactionDetail.aggregate({
       where: {
         transaction: {
-          createdAt: {
-            gte: startOfToday,
-            lt: endOfToday,
-          },
+          createdAt: { gte: startOfToday, lt: endOfToday },
           status: "COMPLETED",
         },
       },
-      _sum: {
-        quantity: true, // Total jumlah barang terjual
-      },
+      _sum: { quantity: true },
     });
 
-    // --- 4. Query Pelanggan Baru Hari Ini ---
+    // --- 4. Query Pelanggan Baru ---
     const newCustomersCount = await prisma.customer.count({
       where: {
-        createdAt: {
-          // Asumsi Anda punya field createdAt di model Customer
-          gte: startOfToday,
-          lt: endOfToday,
-        },
+        createdAt: { gte: startOfToday, lt: endOfToday },
       },
     });
 
-    // 5. Format Hasil
+    // --- 5. Query Agregasi PENGELUARAN (BARU) ---
+    // Menghitung total pengeluaran hari ini dari tabel Expense
+    const expenseSummary = await prisma.expense.aggregate({
+      where: {
+        date: { gte: startOfToday, lt: endOfToday },
+      },
+      _sum: { amount: true },
+    });
+
+    // --- 6. Kalkulasi Akhir ---
+    const totalRevenue = Number(transactionSummary._sum.finalAmount || 0);
+    const totalGrossProfit = Number(transactionSummary._sum.totalMargin || 0);
+    const totalExpenses = Number(expenseSummary._sum.amount || 0); // Data Pengeluaran
+    
+    // Profit Bersih = Profit Kotor - Pengeluaran
+    const totalNetProfit = totalGrossProfit - totalExpenses; 
+
+    // 7. Format Hasil
     const summary = {
-      todayRevenue: transactionSummary._sum.finalAmount || 0,
-      todayProfit: transactionSummary._sum.totalMargin || 0,
+      todayRevenue: totalRevenue,
+      todayProfit: totalGrossProfit,     // Masih dikirim untuk kompatibilitas
+      todayNetProfit: totalNetProfit,    // <-- DATA BARU (Profit Bersih)
+      todayExpenses: totalExpenses,      // <-- DATA BARU (Total Pengeluaran)
       todayTransactions: transactionSummary._count.id || 0,
       todayItemsSold: itemsSoldSummary._sum.quantity || 0,
-      newCustomersToday: newCustomersCount || 0, // Ini butuh field createdAt
+      newCustomersToday: newCustomersCount || 0,
     };
 
     console.log(summary);
-
     res.json(summary);
+    
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Gagal mengambil ringkasan laporan" });

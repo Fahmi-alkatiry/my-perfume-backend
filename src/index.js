@@ -11,6 +11,7 @@ import authRoutes from "./routes/auth.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 import paymentMethodRoutes from './routes/paymentMethod.routes.js';
 import shiftRoutes from './routes/shift.routes.js';
+import expenseRoutes from './routes/expense.routes.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -34,6 +35,7 @@ app.use("/api", customerRoutes);
 app.use("/api", reportRoutes);
 app.use("/api", paymentMethodRoutes);
 app.use("/api", shiftRoutes);
+app.use('/api', expenseRoutes);
 
 // Jalankan server
 app.listen(port, () => {

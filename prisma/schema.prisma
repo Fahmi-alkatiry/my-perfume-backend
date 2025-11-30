@@ -56,6 +56,7 @@ model User {
   transactions   Transaction[]
   stockHistories StockHistory[]
   shifts    Shift[]
+  expenses    Expense[]
 
   @@map("pengguna")
 }
@@ -205,3 +206,18 @@ model Shift {
   @@map("shift_kasir")
 }
 
+model Expense {
+  id          Int      @id @default(autoincrement()) @map("id_pengeluaran")
+  name        String   @map("nama_pengeluaran") // Cth: Bayar Listrik
+  amount      Decimal  @map("jumlah")
+  category    String?  // Cth: Operasional, Gaji, Lain-lain
+  date        DateTime @default(now()) @map("tanggal")
+  
+  userId      Int      @map("id_pengguna") // Siapa yang mencatat
+  user        User     @relation(fields: [userId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("pengeluaran")
+}
