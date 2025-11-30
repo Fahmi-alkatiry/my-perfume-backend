@@ -5,16 +5,10 @@ import { prisma } from '../lib/prisma.js';
  * @desc    Membuat transaksi baru (DENGAN LOGIKA POIN & DISKON)
  * @route   POST /api/transactions
  */
+
 export const createTransaction = async (req, res) => {
-  // Frontend sekarang mengirim data tambahan:
-  // {
-  //   items: [ { productId: 1, quantity: 2 }, ... ],
-  //   userId: 1,
-  //   paymentMethodId: 1,
-  //   customerId: 5,       // <-- BARU (Opsional)
-  //   usePoints: true      // <-- BARU (Opsional, default false)
-  // }
-  const { items, userId, paymentMethodId, customerId, usePoints } = req.body;
+  // 1. Terima voucherId dari body (bisa null jika tidak pakai)
+  const { items, userId, paymentMethodId, customerId, usePoints, voucherId } = req.body;
 
   if (!items || items.length === 0) {
     return res.status(400).json({ error: 'Keranjang tidak boleh kosong' });
@@ -22,46 +16,38 @@ export const createTransaction = async (req, res) => {
 
   try {
     const newTransaction = await prisma.$transaction(async (tx) => {
-      // 1. --- LOGIKA STOK (SAMA SEPERTI SEBELUMNYA) ---
+      // --- A. LOGIKA STOK (SAMA SEPERTI SEBELUMNYA) ---
       const productIds = items.map((item) => item.productId);
       const productsInCart = await tx.product.findMany({
         where: { id: { in: productIds } },
       });
-
       const productMap = new Map(productsInCart.map((p) => [p.id, p]));
 
-      let totalAmount = 0; // Subtotal (Total harga barang)
-      let totalMargin = 0;
+      let totalAmount = 0; // Total Harga Jual Barang
+      let totalCostTransaction = 0; // Total Harga Modal (HPP)
       const transactionDetailsData = [];
       const stockHistoryData = [];
       const stockUpdatePromises = [];
 
       for (const item of items) {
         const product = productMap.get(item.productId);
-        if (!product) {
-          throw new Error(`Produk dengan ID ${item.productId} tidak ditemukan.`);
-        }
-        if (product.stock < item.quantity) {
-          throw new Error(`Stok tidak cukup untuk ${product.name}. Sisa: ${product.stock}`);
-        }
+        if (!product) throw new Error(`Produk ID ${item.productId} hilang.`);
+        if (product.stock < item.quantity) throw new Error(`Stok ${product.name} kurang. Sisa: ${product.stock}`);
 
-        const priceAtSale = product.sellingPrice;
-        const costAtSale = product.purchasePrice;
-        const subtotal = Number(priceAtSale) * item.quantity;
-        const totalCost = Number(costAtSale) * item.quantity;
-        const margin = subtotal - totalCost;
-
+        const subtotal = Number(product.sellingPrice) * item.quantity;
+        const totalCost = Number(product.purchasePrice) * item.quantity;
+        
         totalAmount += subtotal;
-        totalMargin += margin;
+        totalCostTransaction += totalCost;
 
         transactionDetailsData.push({
           productId: product.id,
           quantity: item.quantity,
-          priceAtTransaction: priceAtSale,
-          purchasePriceAtTransaction: costAtSale,
+          priceAtTransaction: product.sellingPrice,
+          purchasePriceAtTransaction: product.purchasePrice,
           subtotal: subtotal,
           totalCostOfGoods: totalCost,
-          totalMargin: margin,
+          totalMargin: subtotal - totalCost,
         });
 
         stockHistoryData.push({
@@ -74,145 +60,165 @@ export const createTransaction = async (req, res) => {
         });
 
         stockUpdatePromises.push(
-          tx.product.update({
-            where: { id: product.id },
-            data: { stock: { decrement: item.quantity } },
-          })
+          tx.product.update({ where: { id: product.id }, data: { stock: { decrement: item.quantity } } })
         );
-      } // Selesai loop item
+      }
 
-      // 2. --- LOGIKA POIN & DISKON (BARU) ---
+      // --- B. LOGIKA VOUCHER (BARU!) ---
+      let discountByVoucher = 0;
+      let usedVoucherId = null;
+
+      if (voucherId) {
+        // Cari voucher
+        const voucher = await tx.voucher.findUnique({ where: { id: Number(voucherId) } });
+        
+        // Validasi Ulang (Double Check Security di Server)
+        if (!voucher) throw new Error('Voucher tidak ditemukan.');
+        if (!voucher.isActive) throw new Error('Voucher tidak aktif.');
+        
+        const now = new Date();
+        if (now < voucher.startDate || now > voucher.endDate) throw new Error('Voucher sudah kedaluwarsa atau belum mulai.');
+        
+        if (voucher.usageLimit > 0 && voucher.usedCount >= voucher.usageLimit) throw new Error('Kuota voucher sudah habis.');
+        
+        if (totalAmount < Number(voucher.minPurchase)) throw new Error(`Minimal belanja kurang (Min: ${Number(voucher.minPurchase)})`);
+
+        // Hitung Nominal Diskon Voucher
+        if (voucher.type === 'FIXED') {
+          discountByVoucher = Number(voucher.value);
+        } else {
+          // Persentase
+          discountByVoucher = (totalAmount * Number(voucher.value)) / 100;
+          // Cek Cap (Maksimal Diskon)
+          if (voucher.maxDiscount && discountByVoucher > Number(voucher.maxDiscount)) {
+            discountByVoucher = Number(voucher.maxDiscount);
+          }
+        }
+
+        // Pastikan diskon tidak lebih besar dari total belanja
+        if (discountByVoucher > totalAmount) discountByVoucher = totalAmount;
+        
+        usedVoucherId = voucher.id;
+
+        // Update Counter Voucher (+1 terpakai)
+        await tx.voucher.update({
+          where: { id: voucher.id },
+          data: { usedCount: { increment: 1 } }
+        });
+      }
+
+      // --- C. LOGIKA POIN & DISKON POIN ---
       let discountByPoints = 0;
       let pointsUsed = 0;
       let pointsEarned = 0;
-      let finalAmount = totalAmount; // Total akhir = Subtotal (untuk saat ini)
       let customerPoints = 0;
       const pointLogsToCreate = [];
 
-      if (customerId) {
-        // Ambil data pelanggan (HARUS di dalam 'tx' agar transaksional)
-        const customer = await tx.customer.findUnique({
-          where: { id: Number(customerId) },
-        });
+      // Harga SEMENTARA setelah kena voucher (sebelum kena poin)
+      let amountAfterVoucher = totalAmount - discountByVoucher;
+      if (amountAfterVoucher < 0) amountAfterVoucher = 0;
 
-        if (!customer) {
-          throw new Error('Pelanggan tidak ditemukan.');
-        }
+      // Harga Akhir (yang akan dibayar)
+      let finalAmount = amountAfterVoucher;
+
+      if (customerId) {
+        const customer = await tx.customer.findUnique({ where: { id: Number(customerId) } });
+        if (!customer) throw new Error('Pelanggan hilang.');
         customerPoints = customer.points;
 
-        // Logika #1: Gunakan Poin (Tukar Diskon)
+        // Gunakan Poin? (Potong lagi setelah voucher)
         if (usePoints) {
-          if (customerPoints < 10) {
-            throw new Error('Poin pelanggan tidak cukup untuk diskon (Kurang dari 10).');
-          }
-          // Terapkan diskon
-          discountByPoints = 30000;
+          if (customerPoints < 10) throw new Error('Poin kurang dari 10.');
+          
+          discountByPoints = 30000; // Rule: 10 Poin = 30rb
           pointsUsed = 10;
-          customerPoints -= 10; // Kurangi poin
-          finalAmount = totalAmount - discountByPoints; // Hitung ulang total akhir
+          customerPoints -= 10;
+          
+          // Kurangi harga akhir
+          finalAmount = amountAfterVoucher - discountByPoints;
+          if (finalAmount < 0) finalAmount = 0; // Gak boleh minus
 
-          // Catat di log untuk PointHistory
-          pointLogsToCreate.push({
-            customerId: customer.id,
-            pointsChange: -10, // Poin berkurang
-            reason: 'Redeemed',
+          pointLogsToCreate.push({ 
+            customerId: customer.id, 
+            pointsChange: -10, 
+            reason: 'Redeemed (Discount)' 
           });
         }
 
-        // Logika #2: Dapatkan Poin
-        // Poin dihitung dari TOTAL AKHIR yang dibayar (setelah diskon)
+        // Hitung Poin Baru (Dari Final Amount yang dibayar uang asli)
         const newPoints = Math.floor(finalAmount / 30000);
         if (newPoints > 0) {
           pointsEarned = newPoints;
-          customerPoints += newPoints; // Tambah poin
-
-          // Catat di log untuk PointHistory
-          pointLogsToCreate.push({
-            customerId: customer.id,
-            pointsChange: pointsEarned, // Poin bertambah
-            reason: 'Earned',
+          customerPoints += newPoints;
+          pointLogsToCreate.push({ 
+            customerId: customer.id, 
+            pointsChange: newPoints, 
+            reason: 'Earned (Transaction)' 
           });
         }
-      } // Selesai logika jika ada customerId
+        
+        // Update Customer Master Data
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: { points: customerPoints, lastTransactionAt: new Date() }
+        });
+      }
 
-      // 3. --- BUAT TRANSAKSI UTAMA (UPGRADED) ---
+      // --- D. BUAT TRANSAKSI (SIMPAN KE DB) ---
       const createdTransaction = await tx.transaction.create({
         data: {
-          totalPrice: totalAmount, // Total asli sebelum diskon
-          totalDiscount: 0, // (Diskon umum, kita belum pakai)
-          discountByPoints: discountByPoints, // Diskon dari poin
-          finalAmount: finalAmount, // Total yang dibayar
-          totalMargin: totalMargin, // (Margin belum dikurangi diskon)
+          totalPrice: totalAmount,      // Harga asli barang
+          totalDiscount: 0,             // (Reserved untuk diskon item manual)
           
-          pointsEarned: pointsEarned,
-          pointsUsed: pointsUsed,
+          // Simpan data diskon
+          discountByVoucher: discountByVoucher,
+          voucherId: usedVoucherId,
+          discountByPoints: discountByPoints,
 
+          finalAmount: finalAmount,     // Uang yang harus dibayar kasir
+          
+          // Margin = (Total Jual - Total Modal) - Diskon Voucher - Diskon Poin
+          totalMargin: (totalAmount - totalCostTransaction) - discountByVoucher - discountByPoints,
+          
+          pointsEarned,
+          pointsUsed,
           status: 'COMPLETED',
           userId: userId || null,
           paymentMethodId: paymentMethodId || null,
           customerId: customerId || null,
-    
-          // Buat TransactionDetail secara inline (Cascade)
+          
           details: {
             create: transactionDetailsData,
           },
         },
       });
 
-      // 4. --- UPDATE STOK & BUAT HISTORY (DI LUAR CREATE) ---
-      
-      // Update Stok (sudah disiapkan di atas)
+      // Link Point History ke Transaksi (Jika ada log poin)
+      if (pointLogsToCreate.length > 0) {
+         await tx.pointHistory.createMany({
+            data: pointLogsToCreate.map(log => ({
+                ...log,
+                transactionId: createdTransaction.id
+            }))
+         });
+      }
+
+      // Jalankan update stok
       await Promise.all(stockUpdatePromises);
       
-      // Buat StockHistory (hubungkan dgn ID transaksi)
+      // Simpan history stok
       await tx.stockHistory.createMany({
-        data: stockHistoryData.map((h) => ({
-          ...h,
-          referenceId: createdTransaction.id,
-        })),
+        data: stockHistoryData.map((h) => ({ ...h, referenceId: createdTransaction.id })),
       });
 
-      // 5. --- UPDATE PELANGGAN & POIN HISTORY (BARU) ---
-      if (customerId) {
-        // Update total poin pelanggan
-        await tx.customer.update({
-          where: { id: Number(customerId) },
-          data: {
-            points: customerPoints, // Poin baru yang sudah dihitung
-            lastTransactionAt: new Date(),
-          },
-        });
-
-        // Buat PointHistory (hubungkan dgn ID transaksi)
-        if (pointLogsToCreate.length > 0) {
-          await tx.pointHistory.createMany({
-            data: pointLogsToCreate.map((log) => ({
-              ...log,
-              transactionId: createdTransaction.id,
-            })),
-          });
-        }
-      }
-      
       return createdTransaction;
     });
 
-    // Jika $transaction berhasil
     res.status(201).json(newTransaction);
 
   } catch (error) {
-    console.error("Gagal membuat transaksi:", error);
-    // Kirim pesan error spesifik ke frontend
-    if (
-      error.message.startsWith("Stok tidak cukup") ||
-      error.message.startsWith("Produk dengan ID") ||
-      error.message.startsWith("Pelanggan tidak ditemukan") ||
-      error.message.startsWith("Poin pelanggan tidak cukup")
-    ) {
-      res.status(400).json({ error: error.message });
-    } else {
-      res.status(500).json({ error: "Terjadi kesalahan internal" });
-    }
+    console.error("Transaksi Gagal:", error);
+    res.status(400).json({ error: error.message || "Gagal memproses transaksi" });
   }
 };
 

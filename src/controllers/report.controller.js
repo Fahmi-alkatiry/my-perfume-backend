@@ -12,20 +12,22 @@ export const getReportSummary = async (req, res) => {
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 
-    // --- 2. Query Agregasi Transaksi (PEMASUKAN) ---
+    // --- 2. Query Agregasi Transaksi (PEMASUKAN & DISKON) ---
     const transactionSummary = await prisma.transaction.aggregate({
       where: {
         createdAt: { gte: startOfToday, lt: endOfToday },
         status: "COMPLETED",
       },
       _sum: {
-        finalAmount: true, // Omzet
-        totalMargin: true, // Gross Profit
+        finalAmount: true,      // Omzet
+        totalMargin: true,      // Gross Profit
+        discountByPoints: true, // Total diskon poin
+        discountByVoucher: true // Total diskon voucher
       },
       _count: { id: true },
     });
 
-    // --- 3. Query Agregasi Produk Terjual ---
+    // --- 3. Query Agregasi Produk Terjual (MISSING DI KODE ANDA) ---
     const itemsSoldSummary = await prisma.transactionDetail.aggregate({
       where: {
         transaction: {
@@ -36,15 +38,14 @@ export const getReportSummary = async (req, res) => {
       _sum: { quantity: true },
     });
 
-    // --- 4. Query Pelanggan Baru ---
+    // --- 4. Query Pelanggan Baru (MISSING DI KODE ANDA) ---
     const newCustomersCount = await prisma.customer.count({
       where: {
         createdAt: { gte: startOfToday, lt: endOfToday },
       },
     });
 
-    // --- 5. Query Agregasi PENGELUARAN (BARU) ---
-    // Menghitung total pengeluaran hari ini dari tabel Expense
+    // --- 5. Query Agregasi PENGELUARAN (MISSING -> PENYEBAB ERROR UTAMA) ---
     const expenseSummary = await prisma.expense.aggregate({
       where: {
         date: { gte: startOfToday, lt: endOfToday },
@@ -55,17 +56,23 @@ export const getReportSummary = async (req, res) => {
     // --- 6. Kalkulasi Akhir ---
     const totalRevenue = Number(transactionSummary._sum.finalAmount || 0);
     const totalGrossProfit = Number(transactionSummary._sum.totalMargin || 0);
-    const totalExpenses = Number(expenseSummary._sum.amount || 0); // Data Pengeluaran
+    const totalExpenses = Number(expenseSummary._sum.amount || 0);
     
-    // Profit Bersih = Profit Kotor - Pengeluaran
-    const totalNetProfit = totalGrossProfit - totalExpenses; 
+    // Hitung Total Diskon (Poin + Voucher)
+    const totalDiscountPoints = Number(transactionSummary._sum.discountByPoints || 0);
+    const totalDiscountVoucher = Number(transactionSummary._sum.discountByVoucher || 0);
+    const totalDiscountsGiven = totalDiscountPoints + totalDiscountVoucher;
+
+    // Hitung Net Profit
+    const totalNetProfit = totalGrossProfit - totalExpenses;
 
     // 7. Format Hasil
     const summary = {
       todayRevenue: totalRevenue,
-      todayProfit: totalGrossProfit,     // Masih dikirim untuk kompatibilitas
-      todayNetProfit: totalNetProfit,    // <-- DATA BARU (Profit Bersih)
-      todayExpenses: totalExpenses,      // <-- DATA BARU (Total Pengeluaran)
+      todayProfit: totalGrossProfit,
+      todayNetProfit: totalNetProfit,
+      todayExpenses: totalExpenses,
+      todayDiscounts: totalDiscountsGiven,
       todayTransactions: transactionSummary._count.id || 0,
       todayItemsSold: itemsSoldSummary._sum.quantity || 0,
       newCustomersToday: newCustomersCount || 0,

@@ -42,6 +42,11 @@ enum ShiftStatus {
   CLOSED
 }
 
+enum DiscountType {
+  FIXED       // Potongan Nominal (Rp 10.000)
+  PERCENTAGE  // Potongan Persen (10%)
+}
+
 // ======================================
 // MODELS
 // ======================================
@@ -129,6 +134,11 @@ model Transaction {
 
   details          TransactionDetail[]
   pointHistories   PointHistory[]      // Relasi untuk audit poin
+
+  discountByVoucher Decimal? @default(0) @map("diskon_voucher")
+  
+  voucherId       Int?      @map("id_voucher")
+  voucher         Voucher?  @relation(fields: [voucherId], references: [id])
 
   @@map("transaksi")
 }
@@ -220,4 +230,32 @@ model Expense {
   updatedAt   DateTime @updatedAt
 
   @@map("pengeluaran")
+}
+
+model Voucher {
+  id          Int          @id @default(autoincrement()) @map("id_voucher")
+  code        String       @unique @map("kode_voucher") // Contoh: "DISKON17"
+  type        DiscountType @map("tipe_diskon")
+  value       Decimal      @map("nilai_diskon")         // Nominal atau Angka Persen
+  
+  // Syarat & Ketentuan
+  minPurchase Decimal?     @default(0) @map("min_belanja")
+  maxDiscount Decimal?     @map("maks_diskon")          // Wajib diisi jika tipe PERCENTAGE
+  
+  // Masa Berlaku
+  startDate   DateTime     @map("tanggal_mulai")
+  endDate     DateTime     @map("tanggal_berakhir")
+  
+  // Kuota
+  usageLimit  Int          @default(0) @map("batas_pemakaian") // Total kuota
+  usedCount   Int          @default(0) @map("jumlah_terpakai") // Counter pemakaian
+  
+  isActive    Boolean      @default(true) @map("aktif")
+
+  transactions Transaction[]
+
+  createdAt   DateTime     @default(now()) @map("dibuat_pada")
+  updatedAt   DateTime     @updatedAt @map("diupdate_pada")
+
+  @@map("voucher")
 }
