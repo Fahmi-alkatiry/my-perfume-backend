@@ -93,6 +93,7 @@ export const updateProduct = async (req, res) => {
       data: req.body,
     });
     res.json(updatedProduct);
+    
   } catch (error) {
     console.error(error);
     // Tangani jika produk tidak ditemukan saat update
