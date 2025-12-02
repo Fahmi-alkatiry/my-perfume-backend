@@ -237,7 +237,6 @@ export const createTransaction = async (req, res) => {
           referenceId: createdTransaction.id,
         })),
       });
-      
 
       if (customerId) {
         // Pastikan bukan Guest
@@ -247,7 +246,16 @@ export const createTransaction = async (req, res) => {
         });
 
         if (customerData && customerData.phoneNumber) {
-          const dateStr = new Date().toLocaleDateString("id-ID");
+          const dateStr = new Date().toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          });
+
+          const timeStr = new Date().toLocaleTimeString("id-ID", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
 
           // Buat detail item
           const itemsList = items
@@ -259,16 +267,24 @@ export const createTransaction = async (req, res) => {
             })
             .join("\n");
 
-          const message = `*My Perfume - Struk Belanja* 🛍️
-Tanggal: ${dateStr}
-Pelanggan: ${customerData.name}
+          const message = `🧾 *My Perfume - Struk Belanja*
 
-*Detail Pesanan:*
+📍 Jl. Raya Panglegur, Kota Pamekasan
+🗓️ ${dateStr} | ⏰ ${timeStr}
+👤 Pelanggan: ${customerData.name}
+
+━━━━━━━━━━━━━━━━
+   *Detail Pesanan*
+━━━━━━━━━━━━━━━━
 ${itemsList}
 
-*Total: Rp ${finalAmount.toLocaleString("id-ID")}*
+💳 *Total Dibayar:* Rp ${finalAmount.toLocaleString("id-ID")}
 
-Terima kasih telah berbelanja! Simpan nomor ini untuk info promo.`;
+━━━━━━━━━━━━━━━━
+🙏 Terima kasih telah berbelanja di My Perfume!
+Simpan nomor ini untuk info promo dan katalog terbaru.
+IG: @Myperfumeee_
+`;
 
           // Kirim (Fire and Forget - jangan await agar kasir tidak nunggu)
           sendWAMessage(customerData.phoneNumber, message);

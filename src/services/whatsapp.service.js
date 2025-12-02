@@ -31,12 +31,12 @@ export const sendWAMessage = async (phone, message) => {
       message: message,
     };
 
-    const response = await axios.post(`${WA_URL}/send/message`, payload, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' } // GoWA kadang butuh form-urlencoded atau JSON, cek docs v6+
-    });
+    // const response = await axios.post(`${WA_URL}/send/message`, payload, {
+    //   headers: { 'Content-Type': 'application/x-www-form-urlencoded' } // GoWA kadang butuh form-urlencoded atau JSON, cek docs v6+
+    // });
     
     // Note: GoWA v6 ke atas biasanya support JSON:
-    // const response = await axios.post(`${WA_URL}/send/message`, payload);
+    const response = await axios.post(`${WA_URL}/send/message`, payload);
 
     console.log(`[WA] Sent to ${formattedPhone}`);
     return response.data;
@@ -51,28 +51,6 @@ export const sendWAMessage = async (phone, message) => {
  * @param {Array} phones - Array Nomor HP
  * @param {string} message - Isi Pesan
  */
-// export const sendBroadcast = async (phones, message) => {
-//   let success = 0;
-
-//   for (const phone of phones) {
-//     try {
-//       await sendWAMessage(phone, message);
-
-//       success++;
-
-//       // Random delay 2–6 detik
-//       const delay = Math.floor(Math.random() * (6000 - 2000)) + 2000;
-//       console.log(`Tunggu ${delay}ms sebelum kirim ke nomor berikutnya...`);
-      
-//       await new Promise(resolve => setTimeout(resolve, delay));
-      
-//     } catch (err) {
-//       console.error(`Gagal kirim ke ${phone}`, err);
-//     }
-//   }
-
-//   return success;
-// };
 
 export const sendBroadcast = async (customers, message) => {
   let success = 0;

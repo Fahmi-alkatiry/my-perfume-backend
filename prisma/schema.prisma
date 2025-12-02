@@ -71,6 +71,14 @@ model Customer {
   name                String         @map("nama_pelanggan")
   phoneNumber         String?        @unique @map("nomor_pelanggan")
   points              Int            @default(0) @map("poin_pelanggan")
+
+
+  recencyScore      Int?     @default(0) // Skor 1-5
+  frequencyScore    Int?     @default(0) // Skor 1-5
+  monetaryScore     Int?     @default(0) // Skor 1-5
+  rfmSegment        String?  @map("segmen_pelanggan") // Cth: "Champion", "Loyal"
+  lastAnalysisDate  DateTime? // Kapan terakhir dianalisis
+  
   lastTransactionAt   DateTime?      @map("transaksi_terakhir")
 
   createdAt DateTime @default(now()) @map("tanggal_dibuat")
