@@ -7,6 +7,7 @@ import {
   updateCustomer,
   deleteCustomer,
   getCustomerHistory,
+  getCustomerPointHistory,
 } from '../controllers/customer.controller.js';
 
 // --- 1. IMPOR MIDDLEWARE ---
@@ -26,5 +27,7 @@ router.route('/customers/:id')
   .delete(protect, admin, deleteCustomer); // Hanya Admin bisa HAPUS
 
   router.get('/customers/:id/history', protect, getCustomerHistory);
+
+  router.get('/customers/:id/points', protect, getCustomerPointHistory);
 
 export default router;

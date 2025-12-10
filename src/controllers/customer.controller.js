@@ -168,3 +168,29 @@ export const getCustomerHistory = async (req, res) => {
     res.status(500).json({ error: 'Gagal mengambil riwayat pelanggan' });
   }
 };
+
+export const getCustomerPointHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const points = await prisma.pointHistory.findMany({
+      where: {
+        customerId: Number(id),
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      // Kita ambil info transaksi terkait jika ada
+      include: {
+        transaction: {
+          select: { id: true, finalAmount: true }
+        }
+      }
+    });
+
+    res.json(points);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Gagal mengambil riwayat poin' });
+  }
+};
