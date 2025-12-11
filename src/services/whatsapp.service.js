@@ -131,3 +131,54 @@ export const sendBroadcastBatch = async (
   console.log(`🎯 Selesai. Terkirim: ${success}, Gagal: ${fail}`);
   return { success, fail };
 };
+
+
+// export const sendWALocation = async (phone, latitude, longitude, address = "") => {
+//   const formattedPhone = formatPhone(phone);
+
+//   try {
+//     const payload = {
+//       // phone: "6289668125652",
+//       phone: formattedPhone,
+//       latitude,
+//       longitude,
+//       address,
+//     };
+
+//     const response = await axios.post(`${WA_URL}/send/location`, payload);
+
+//     if (response.status < 200 || response.status >= 300) {
+//       throw new Error(`WA Gateway error: ${response.status}`);
+//     }
+
+//     console.log(`[WA] Lokasi terkirim ke ${formattedPhone}`);
+//     return response.data;
+
+//   } catch (error) {
+//     console.error(`[WA Error] Gagal kirim lokasi ke ${formattedPhone}:`, error.response?.data || error.message);
+//     throw error;
+//   }
+// };
+
+
+// export const sendWAButton = async (phone, text, footer, buttons) => {
+//   const formattedPhone = formatPhone(phone);
+
+//   try {
+//     const payload = {
+//       // phone: "6289668125652", 
+//       phone: formattedPhone,
+//       message: text,
+//       footer,
+//       buttons
+//     };
+
+//     const res = await axios.post(`${WA_URL}/send/button`, payload);
+//     console.log(`[WA] Button terkirim ke ${formattedPhone}`);
+//     return res.data;
+
+//   } catch (err) {
+//     console.error(`[WA Error] Button gagal: ${formattedPhone}`, err.response?.data || err.message);
+//     throw err;
+//   }
+// };

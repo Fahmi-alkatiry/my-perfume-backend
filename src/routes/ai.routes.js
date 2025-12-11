@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { chatWithData } from '../controllers/ai.controller.js';
 import { protect, admin } from '../middleware/auth.middleware.js';
-import { listModels } from '../controllers/debug.controller.js';
 
 const router = Router();
 

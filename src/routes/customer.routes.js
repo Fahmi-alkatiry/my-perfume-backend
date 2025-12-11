@@ -20,6 +20,7 @@ const router = Router();
 router.route('/customers')
   .get(protect, getAllCustomers) // Siapapun bisa LIHAT
   .post(protect, createCustomer); // Siapapun (Kasir) bisa BUAT pelanggan baru
+  // .post( createCustomer); // Siapapun (Kasir) bisa BUAT pelanggan baru
 
 router.route('/customers/:id')
   .get(protect, getCustomerById) // Siapapun bisa LIHAT by ID
