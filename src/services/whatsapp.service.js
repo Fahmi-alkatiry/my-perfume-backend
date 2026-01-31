@@ -1,52 +1,72 @@
 // src/services/whatsapp.service.js
-
 import axios from "axios";
 import "dotenv/config";
 
 const WA_URL = process.env.WA_GATEWAY_URL;
+const waUser = process.env.WA_BASIC_USER || "admin";
+const waPass = process.env.WA_BASIC_PASS || "admin";
+// Tambahkan ID perangkat di .env (contoh: 628xxx@s.whatsapp.net)
+const WA_DEVICE_ID = process.env.WA_DEVICE_ID;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Format nomor: 08xxx -> 628xxx
 const formatPhone = (phone) => {
   let p = String(phone).trim().replace(/\D/g, "");
   if (p.startsWith("0")) p = "62" + p.slice(1);
   if (p.startsWith("8")) p = "62" + p;
+  // v8 membutuhkan suffix JID jika tidak otomatis ditambahkan oleh server
+  if (!p.endsWith("@s.whatsapp.net")) p = p + "@s.whatsapp.net";
   return p;
 };
 
-// Kirim WA
 export const sendWAMessage = async (phone, message) => {
   const formattedPhone = formatPhone(phone);
   if (!message.trim()) throw new Error("Pesan kosong");
 
   try {
-    const payload = { 
-      phone: formattedPhone, 
-      // phone: "6289668125652", 
-      message 
+    const payload = {
+      phone: formattedPhone,
+      message,
     };
-    const response = await axios.post(`${WA_URL}/send/message`, payload);
+
+    const response = await axios.post(`${WA_URL}/send/message`, payload, {
+      // PERUBAHAN V8: Wajib menyertakan Device ID
+      headers: {
+        "X-Device-Id": WA_DEVICE_ID,
+      },
+      // Tambahkan Basic Auth jika diaktifkan di server Gowa
+      auth: {
+        username: waUser,
+        password: waPass,
+      },
+    });
+
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`WA Gateway error: ${response.status}`);
     }
-    console.log(`[WA] Sent to ${formattedPhone}`);
+
+    console.log(`[WA] Sent to ${formattedPhone} via Device ${WA_DEVICE_ID}`);
     return response.data;
   } catch (error) {
-    console.error(`[WA Error] Gagal kirim ke ${formattedPhone}:`, error.response?.data || error.message);
+    console.error(
+      `[WA Error] Gagal kirim ke ${formattedPhone}:`,
+      error.response?.data || error.message,
+    );
     throw error;
   }
 };
 
-// Retry otomatis
-async function safeSend(phone, msg, retry = 2) {
+// Fungsi Retry (Tetap sama)
+export async function safeSend(phone, msg, retry = 2) {
   try {
     await sendWAMessage(phone, msg);
     return true;
   } catch (err) {
     if (retry > 0) {
-      const retryDelay = Math.floor(Math.random() * (9000 - 4000 + 1)) + 4000; // delay retry 4–9 detik
-      console.log(`🔁 Retry untuk ${phone} (${retry}x sisa) setelah ${retryDelay}ms...`);
+      const retryDelay = Math.floor(Math.random() * 5000) + 4000;
+      console.log(
+        `🔁 Retry untuk ${phone} (${retry}x sisa) dalam ${retryDelay}ms...`,
+      );
       await wait(retryDelay);
       return safeSend(phone, msg, retry - 1);
     }
@@ -58,7 +78,7 @@ async function safeSend(phone, msg, retry = 2) {
 export const sendBroadcastBatch = async (
   customers,
   message,
-  batchSize = 3 // kecil agar makin aman
+  batchSize = 3, // kecil agar makin aman
 ) => {
   let success = 0;
   let fail = 0;
@@ -76,13 +96,14 @@ export const sendBroadcastBatch = async (
         const msgTemplate = customer.personalizedMessage || message || "";
 
         // Buat pesan lebih unik
-        const uniqueSuffix = ["🙂", "🙏", "✨", "⭐", "🎀", ""]
-          [Math.floor(Math.random() * 6)];
+        const uniqueSuffix = ["🙂", "🙏", "✨", "⭐", "🎀", ""][
+          Math.floor(Math.random() * 6)
+        ];
 
         const personalizedMessage = msgTemplate
           .replace(/{{nama}}/gi, name)
-          .replace(/{{firstName}}/gi, firstName)
-          // .trim() + ` ${uniqueSuffix}`;
+          .replace(/{{firstName}}/gi, firstName);
+        // .trim() + ` ${uniqueSuffix}`;
 
         if (!personalizedMessage.trim()) {
           console.log(`⚠️ Pesan kosong, dilewati: ${customer.phoneNumber}`);
@@ -107,7 +128,6 @@ export const sendBroadcastBatch = async (
 
         counter++;
 
-
         // Cooldown setiap 25 pesan
         if (counter % 25 === 0) {
           const cooldown =
@@ -115,7 +135,6 @@ export const sendBroadcastBatch = async (
           console.log(`😴 Cooldown ${Math.round(cooldown / 1000)} detik...`);
           await wait(cooldown);
         }
-
       } catch (err) {
         console.log(`❌ ERROR nomor ${customer.phoneNumber}:`, err.message);
         fail++;
@@ -131,7 +150,6 @@ export const sendBroadcastBatch = async (
   console.log(`🎯 Selesai. Terkirim: ${success}, Gagal: ${fail}`);
   return { success, fail };
 };
-
 
 // export const sendWALocation = async (phone, latitude, longitude, address = "") => {
 //   const formattedPhone = formatPhone(phone);
@@ -160,13 +178,12 @@ export const sendBroadcastBatch = async (
 //   }
 // };
 
-
 // export const sendWAButton = async (phone, text, footer, buttons) => {
 //   const formattedPhone = formatPhone(phone);
 
 //   try {
 //     const payload = {
-//       // phone: "6289668125652", 
+//       // phone: "6289668125652",
 //       phone: formattedPhone,
 //       message: text,
 //       footer,
