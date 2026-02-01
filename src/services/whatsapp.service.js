@@ -6,7 +6,7 @@ const WA_URL = process.env.WA_GATEWAY_URL;
 const waUser = process.env.WA_BASIC_USER || "user1";
 const waPass = process.env.WA_BASIC_PASS || "pass1";
 // Tambahkan ID perangkat di .env (contoh: 628xxx@s.whatsapp.net)
-const WA_DEVICE_ID = process.env.WA_DEVICE_ID;
+const WA_DEVICE_ID = process.env.WA_DEVICE_ID || "myperfume";
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
