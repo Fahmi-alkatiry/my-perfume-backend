@@ -63,11 +63,11 @@ export const createCustomer = async (req, res) => {
     if (newCustomer.phoneNumber) {
       const message = `Halo ${newCustomer.name} 👋
 
-Terima kasih sudah mendaftar sebagai pelanggan kami.
+Terima kasih sudah menjadi pelanggan *My Perfume* ✨  
+Semoga aroma pilihan kami menemani harimu 😊
 
-Jika ada pertanyaan silakan hubungi kami kapan saja 😊
-— Tim Support`;
-
+Salam,  
+*My Perfume* 🌸`;
       // jangan block response jika WA gagal
       sendWAMessage(newCustomer.phoneNumber, message).catch((err) => {
         console.error("Gagal kirim WA:", err.message);
