@@ -19,6 +19,7 @@ const formatPhone = (phone) => {
   return p;
 };
 
+
 export const sendWAMessage = async (phone, message) => {
   const formattedPhone = formatPhone(phone);
   if (!message.trim()) throw new Error("Pesan kosong");
