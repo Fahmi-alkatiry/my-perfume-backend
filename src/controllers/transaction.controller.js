@@ -267,7 +267,7 @@ export const createTransaction = async (req, res) => {
             })
             .join("\n");
 
-          const message = `🧾 *My Perfume - Struk Belanja*
+const message = `🧾 *My Perfume - Struk Belanja*
 
 📍 Jl. Raya Panglegur, Kota Pamekasan
 🗓️ ${dateStr} | ⏰ ${timeStr}
@@ -278,7 +278,13 @@ export const createTransaction = async (req, res) => {
 ━━━━━━━━━━━━━━━━
 ${itemsList}
 
-💳 *Total Dibayar:* Rp ${finalAmount.toLocaleString("id-ID")}
+━━━━━━━━━━━━━━━━
+💰 *Ringkasan*
+━━━━━━━━━━━━━━━━
+💳 Total Dibayar : Rp ${finalAmount.toLocaleString("id-ID")}
+🎁 Poin Dipakai : ${pointsUsed}
+✨ Poin Didapat : ${pointsEarned}
+🏆 Total Poin   : ${customerPoints}
 
 ━━━━━━━━━━━━━━━━
 🙏 Terima kasih telah berbelanja di My Perfume!
