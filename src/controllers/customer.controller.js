@@ -11,9 +11,13 @@ export const getAllCustomers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || "";
 
+    // sorting
+    const sort = req.query.sort || "name";     // field
+    const order = req.query.order || "asc";    // asc | desc
+
     const skip = (page - 1) * limit;
 
-    // Filter pencarian (berdasarkan nama ATAU nomor HP)
+    // Filter pencarian
     const where = search
       ? {
           OR: [
@@ -28,7 +32,9 @@ export const getAllCustomers = async (req, res) => {
         where,
         skip,
         take: limit,
-        orderBy: { name: "asc" },
+        orderBy: {
+          [sort]: order === "desc" ? "desc" : "asc",
+        },
       }),
       prisma.customer.count({ where }),
     ]);
