@@ -1,32 +1,51 @@
 // backend/src/controllers/product.controller.js
 import { prisma } from '../lib/prisma.js';
 
-/**
- * @desc    Mendapatkan semua data produk
- */
 export const getAllProducts = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || '';
+    
+    // Filter Kategori
+    const type = req.query.type; 
+    
+    // Sorting Options
+    const sortByStock = req.query.sortByStock; // lowest | highest
+    const sortByPrice = req.query.sortByPrice; // lowest | highest
 
     const skip = (page - 1) * limit;
 
-    const where = search
-      ? {
-          OR: [
-            { name: { contains: search } },
-            { productCode: { contains: search } },
-          ],
-        }
-      : {};
+    const where = {
+      ...(search ? {
+        OR: [
+          { name: { contains: search } },
+          { productCode: { contains: search } },
+        ],
+      } : {}),
+      ...(type ? { type: type } : {}),
+    };
+
+    // LOGIKA ORDERBY DINAMIS
+    let orderBy = { productCode: 'asc' }; // Default
+
+    // Prioritas urutan (bisa disesuaikan mana yang lebih didahulukan)
+    if (sortByStock === 'lowest') {
+      orderBy = { stock: 'asc' };
+    } else if (sortByStock === 'highest') {
+      orderBy = { stock: 'desc' };
+    } else if (sortByPrice === 'lowest') {
+      orderBy = { sellingPrice: 'asc' };
+    } else if (sortByPrice === 'highest') {
+      orderBy = { sellingPrice: 'desc' };
+    }
 
     const [products, totalCount] = await prisma.$transaction([
       prisma.product.findMany({
         where,
         skip,
         take: limit,
-        orderBy: { productCode: 'asc' }, // ⬅️ Urut berdasarkan kode produk
+        orderBy,
       }),
       prisma.product.count({ where }),
     ]);
