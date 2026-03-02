@@ -16,6 +16,8 @@ import voucherRoutes from './routes/voucher.routes.js';
 import broadcastRoutes from './routes/broadcast.routes.js';
 import rfmRoutes from './routes/rfm.routes.js';
 import aiRoutes from './routes/ai.routes.js';
+import paymentRoutes from "./routes/payment.routes.js"; // 1. TAMBAHKAN INI
+
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -23,6 +25,7 @@ const port = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json()); // Penting agar server bisa membaca req.body (JSON)
+app.use(express.urlencoded({ extended: true })); // 2. TAMBAHKAN INI (Penting untuk Webhook)
 
 // Route utama
 app.get("/", (req, res) => {
@@ -45,7 +48,7 @@ app.use('/api', broadcastRoutes); // <-- GUNAKAN INI
 app.use('/api', rfmRoutes);
 app.use('/api', aiRoutes);
 
-
+app.use("/api", paymentRoutes); // 3. TAMBAHKAN INI
 
 // Jalankan server
 app.listen(port, () => {
