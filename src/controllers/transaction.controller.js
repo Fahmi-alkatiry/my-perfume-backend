@@ -36,7 +36,7 @@ export const createTransaction = async (req, res) => {
         if (!product) throw new Error(`Produk ID ${item.productId} hilang.`);
         if (product.stock < item.quantity)
           throw new Error(
-            `Stok ${product.name} kurang. Sisa: ${product.stock}`
+            `Stok ${product.name} kurang. Sisa: ${product.stock}`,
           );
 
         const subtotal = Number(product.sellingPrice) * item.quantity;
@@ -68,7 +68,7 @@ export const createTransaction = async (req, res) => {
           tx.product.update({
             where: { id: product.id },
             data: { stock: { decrement: item.quantity } },
-          })
+          }),
         );
       }
 
@@ -95,7 +95,7 @@ export const createTransaction = async (req, res) => {
 
         if (totalAmount < Number(voucher.minPurchase))
           throw new Error(
-            `Minimal belanja kurang (Min: ${Number(voucher.minPurchase)})`
+            `Minimal belanja kurang (Min: ${Number(voucher.minPurchase)})`,
           );
 
         // Hitung Nominal Diskon Voucher
@@ -129,58 +129,75 @@ export const createTransaction = async (req, res) => {
       let discountByPoints = 0;
       let pointsUsed = 0;
       let pointsEarned = 0;
-      let customerPoints = 0;
+      let finalCustomerPoints = 0;
       const pointLogsToCreate = [];
 
       // Harga SEMENTARA setelah kena voucher (sebelum kena poin)
-      let amountAfterVoucher = totalAmount - discountByVoucher;
-      if (amountAfterVoucher < 0) amountAfterVoucher = 0;
+      let amountForPointCalculation = totalAmount - discountByVoucher;
+      if (amountForPointCalculation < 0) amountForPointCalculation = 0;
 
       // Harga Akhir (yang akan dibayar)
-      let finalAmount = amountAfterVoucher;
+      let finalAmount = amountForPointCalculation;
 
       if (customerId) {
         const customer = await tx.customer.findUnique({
           where: { id: Number(customerId) },
         });
         if (!customer) throw new Error("Pelanggan hilang.");
-        customerPoints = customer.points;
 
-        // Gunakan Poin? (Potong lagi setelah voucher)
+        // 1. HITUNG POTENSI POIN DARI BELANJAAN SEKARANG
+        // Meskipun belum dibayar, kita "hitung dulu" poin yang akan didapat
+        const potentialPointsFromCurrent = Math.floor(
+          amountForPointCalculation / 30000,
+        );
+
+        // 2. TOTAL POIN VIRTUAL (Poin Lama + Poin Baru)
+        const totalVirtualPoints = customer.points + potentialPointsFromCurrent;
+
         if (usePoints) {
-          if (customerPoints < 10) throw new Error("Poin kurang dari 10.");
+          // Gunakan totalVirtualPoints untuk validasi, bukan hanya customer.points
+          if (totalVirtualPoints < 10) {
+            throw new Error(
+              `Poin tidak cukup. Total poin Anda (termasuk transaksi ini) baru ${totalVirtualPoints}.`,
+            );
+          }
 
-          discountByPoints = 30000; // Rule: 10 Poin = 30rb
+          discountByPoints = 30000;
           pointsUsed = 10;
-          customerPoints -= 10;
 
-          // Kurangi harga akhir
-          finalAmount = amountAfterVoucher - discountByPoints;
-          if (finalAmount < 0) finalAmount = 0; // Gak boleh minus
+          // Potong harga
+          finalAmount = amountForPointCalculation - discountByPoints;
+          if (finalAmount < 0) finalAmount = 0;
 
+          // 3. UPDATE SALDO AKHIR: (Poin Lama + Poin Baru) - 10
+          pointsEarned = potentialPointsFromCurrent;
+          finalCustomerPoints = totalVirtualPoints - 10;
+
+          // Log Penggunaan
           pointLogsToCreate.push({
             customerId: customer.id,
             pointsChange: -10,
-            reason: "Redeemed (Discount)",
+            reason: "Redeemed (Instant Reward)",
           });
+        } else {
+          // Jika tidak tukar poin, poin hanya bertambah
+          pointsEarned = potentialPointsFromCurrent;
+          finalCustomerPoints = totalVirtualPoints;
         }
 
-        // Hitung Poin Baru (Dari Final Amount yang dibayar uang asli)
-        const newPoints = Math.floor(finalAmount / 30000);
-        if (newPoints > 0) {
-          pointsEarned = newPoints;
-          customerPoints += newPoints;
+        // Log Penambahan Poin
+        if (pointsEarned > 0) {
           pointLogsToCreate.push({
             customerId: customer.id,
-            pointsChange: newPoints,
+            pointsChange: pointsEarned,
             reason: "Earned (Transaction)",
           });
         }
 
-        // Update Customer Master Data
+        // Update Data Pelanggan
         await tx.customer.update({
           where: { id: customer.id },
-          data: { points: customerPoints, lastTransactionAt: new Date() },
+          data: { points: finalCustomerPoints, lastTransactionAt: new Date() },
         });
       }
 
@@ -201,8 +218,8 @@ export const createTransaction = async (req, res) => {
           totalMargin:
             totalAmount -
             totalCostTransaction -
-            discountByVoucher -
-            discountByPoints,
+            (discountByVoucher || 0) -
+            (discountByPoints || 0),
 
           pointsEarned,
           pointsUsed,
@@ -267,7 +284,21 @@ export const createTransaction = async (req, res) => {
             })
             .join("\n");
 
-const message = `🧾 *My Perfume - Struk Belanja*
+          const totalAllDiscount =
+            (discountByVoucher || 0) + (discountByPoints || 0);
+
+          // 2. Susun baris diskon secara kondisional
+          const voucherRow =
+            discountByVoucher > 0
+              ? `🎟️ Voucher       : -Rp ${Number(discountByVoucher).toLocaleString("id-ID")}\n`
+              : "";
+
+          const pointDiscountRow =
+            discountByPoints > 0
+              ? `🎁 Potong Poin   : -Rp ${Number(discountByPoints).toLocaleString("id-ID")}\n`
+              : "";
+
+          const message = `🧾 *My Perfume - Struk Belanja*
 
 📍 Jl. Raya Panglegur, Kota Pamekasan
 🗓️ ${dateStr} | ⏰ ${timeStr}
@@ -281,10 +312,15 @@ ${itemsList}
 ━━━━━━━━━━━━━━━━
 💰 *Ringkasan*
 ━━━━━━━━━━━━━━━━
-💳 Total Dibayar : Rp ${finalAmount.toLocaleString("id-ID")}
-🎁 Poin Dipakai : ${pointsUsed}
-✨ Poin Didapat : ${pointsEarned}
-🏆 Total Poin   : ${customerPoints}
+💵 Subtotal      : Rp ${Number(totalAmount).toLocaleString("id-ID")}
+${voucherRow}${pointDiscountRow}${totalAllDiscount > 0 ? `━━━━━━━━━━━━━━━━\n` : ""}💳 *Total Bayar   : Rp ${Number(finalAmount).toLocaleString("id-ID")}*
+
+━━━━━━━━━━━━━━━━
+✨ *Info Poin*
+━━━━━━━━━━━━━━━━
+📈 Poin Didapat : +${pointsEarned}
+📉 Poin Ditukar : -${pointsUsed}
+🏆 *Total Poin   : ${finalCustomerPoints}*
 
 ━━━━━━━━━━━━━━━━
 🙏 Terima kasih telah berbelanja di My Perfume!
