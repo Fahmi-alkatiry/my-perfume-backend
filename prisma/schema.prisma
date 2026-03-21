@@ -267,3 +267,4 @@ model Voucher {
 
   @@map("voucher")
 }
+
