@@ -19,7 +19,6 @@ const formatPhone = (phone) => {
   return p;
 };
 
-
 export const sendWAMessage = async (phone, message) => {
   const formattedPhone = formatPhone(phone);
   if (!message.trim()) throw new Error("Pesan kosong");
@@ -63,11 +62,19 @@ export async function safeSend(phone, msg, retry = 2) {
     await sendWAMessage(phone, msg);
     return true;
   } catch (err) {
+    // JANGAN RETRY jika nomor memang tidak ada di WhatsApp
+    const errorMsg = err.response?.data?.message || err.message;
+    if (
+      errorMsg.includes("not on whatsapp") ||
+      errorMsg.includes("INVALID_JID")
+    ) {
+      console.log(`🚫 Skip retry untuk ${phone} karena nomor tidak terdaftar.`);
+      return false;
+    }
+
     if (retry > 0) {
       const retryDelay = Math.floor(Math.random() * 5000) + 4000;
-      console.log(
-        `🔁 Retry untuk ${phone} (${retry}x sisa) dalam ${retryDelay}ms...`,
-      );
+      console.log(`🔁 Retry untuk ${phone} (${retry}x sisa)...`);
       await wait(retryDelay);
       return safeSend(phone, msg, retry - 1);
     }

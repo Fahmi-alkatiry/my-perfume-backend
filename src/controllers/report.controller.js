@@ -210,12 +210,26 @@ export const getStockHistory = async (req, res) => {
     // 1. Ambil parameter query
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const { type, search } = req.query; // Filter: 'IN' / 'OUT' / 'ADJUSTMENT' & 'search' by product
+    const { type, search, startDate, endDate } = req.query; // Filter: 'IN' / 'OUT' / 'ADJUSTMENT' & 'search' by product
 
     const skip = (page - 1) * limit;
 
     // 2. Buat 'where' clause (filter)
     const where = {};
+
+    // Filter berdasarkan Tanggal
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      where.createdAt = {
+        gte: start,
+        lte: end,
+      };
+    }
 
     // Filter berdasarkan Tipe
     if (type) {
