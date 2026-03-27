@@ -421,6 +421,13 @@ export const getAdvancedReports = async (req, res) => {
       _count: { id: true },
     });
 
+    const expenseSummary = await prisma.expense.aggregate({
+      where: {
+        date: { gte: start, lte: end },
+      },
+      _sum: { amount: true },
+    });
+
     // 3. Data Produk Terjual (Agregasi per Produk)
     const aggregatedProducts = await prisma.transactionDetail.groupBy({
       by: ['productId'],
@@ -478,10 +485,18 @@ export const getAdvancedReports = async (req, res) => {
       "Status": detail.transaction.status
     }));
 
+    const totalRevenue = Number(summary._sum.finalAmount || 0);
+    const totalGrossProfit = Number(summary._sum.totalMargin || 0);
+    const totalExpenses = Number(expenseSummary._sum.amount || 0);
+    const totalNetProfit = totalGrossProfit - totalExpenses;
+
     res.json({
       summary: {
-        totalRevenue: Number(summary._sum.finalAmount || 0),
-        totalProfit: Number(summary._sum.totalMargin || 0),
+        totalRevenue: totalRevenue,
+        totalProfit: totalGrossProfit, // fallback for client
+        totalGrossProfit: totalGrossProfit,
+        totalExpenses: totalExpenses,
+        totalNetProfit: totalNetProfit,
         totalOrders: summary._count.id || 0,
       },
       products: productsWithNames, 
