@@ -137,13 +137,13 @@ export const updateCustomer = async (req, res) => {
     });
     res.json(updatedCustomer);
   } catch (error) {
-    console.error(error);
     if (error.code === "P2002") {
       return res.status(400).json({ error: "Nomor HP sudah terdaftar." });
     }
     if (error.code === "P2025") {
       return res.status(404).json({ error: "Pelanggan tidak ditemukan" });
     }
+    console.error("[UpdateCustomer Error]:", error);
     res.status(500).json({ error: "Gagal mengupdate pelanggan" });
   }
 };
@@ -159,7 +159,6 @@ export const deleteCustomer = async (req, res) => {
     });
     res.status(204).send();
   } catch (error) {
-    console.error(error);
     if (error.code === "P2025") {
       return res.status(404).json({ error: "Pelanggan tidak ditemukan" });
     }
@@ -170,6 +169,7 @@ export const deleteCustomer = async (req, res) => {
           "Pelanggan tidak bisa dihapus karena memiliki riwayat transaksi.",
       });
     }
+    console.error("[DeleteCustomer Error]:", error);
     res.status(500).json({ error: "Gagal menghapus pelanggan" });
   }
 };
@@ -275,5 +275,24 @@ export const getLapsedCustomers = async (req, res) => {
     return res
       .status(500)
       .json({ error: "Gagal mengambil data pelanggan lama." });
+  }
+};
+
+/**
+ * @desc    Mendapatkan pelanggan berdasarkan NFC ID bawaan pabrik (Fixed ID/UID)
+ * @route   GET /api/customers/nfc/:nfcId
+ */
+export const getCustomerByNfcId = async (req, res) => {
+  const { nfcId } = req.params;
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { nfcCardId: nfcId }
+    });
+    
+    if (!customer) return res.status(404).json({ error: "Kartu tidak terdaftar" });
+    res.json(customer);
+  } catch (error) {
+    console.error("[GetCustomerByNfcId Error]:", error);
+    res.status(500).json({ error: "Gagal mencari pelanggan berdasarkan kartu NFC" });
   }
 };
