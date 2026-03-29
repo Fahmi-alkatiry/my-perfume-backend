@@ -101,9 +101,8 @@ export const getTransactionHistory = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // 2. Buat 'where' clause (filter)
-    const where = {
-      status: "COMPLETED",
-    };
+    // Tampilkan semua status (COMPLETED, PENDING, CANCELLED)
+    const where = {};
 
     // Tambahkan filter tanggal jika ada
     if (startDate && endDate) {
@@ -210,12 +209,26 @@ export const getStockHistory = async (req, res) => {
     // 1. Ambil parameter query
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const { type, search } = req.query; // Filter: 'IN' / 'OUT' / 'ADJUSTMENT' & 'search' by product
+    const { type, search, startDate, endDate } = req.query; // Filter: 'IN' / 'OUT' / 'ADJUSTMENT' & 'search' by product
 
     const skip = (page - 1) * limit;
 
     // 2. Buat 'where' clause (filter)
     const where = {};
+
+    // Filter berdasarkan Tanggal
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      where.createdAt = {
+        gte: start,
+        lte: end,
+      };
+    }
 
     // Filter berdasarkan Tipe
     if (type) {
@@ -384,5 +397,117 @@ export const getShiftHistory = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Gagal mengambil riwayat shift' });
+  }
+};
+
+export const getAdvancedReports = async (req, res) => {
+  const { startDate, endDate } = req.query;
+
+  try {
+    // 1. Setup Tanggal (WIB)
+    const start = new Date(`${startDate}T00:00:00+07:00`);
+    const end = new Date(`${endDate}T23:59:59+07:00`);
+
+    const financialWhere = {
+      createdAt: { gte: start, lte: end },
+      status: "COMPLETED",
+    };
+
+    const historyWhere = {
+      createdAt: { gte: start, lte: end },
+      // Tampilkan status selain COMPLETED jika ada (misal PENDING, CANCELLED)
+    };
+
+    // 2. Ringkasan Utama (Aggregasi)
+    const summary = await prisma.transaction.aggregate({
+      where: financialWhere,
+      _sum: { finalAmount: true, totalMargin: true },
+      _count: { id: true },
+    });
+
+    const expenseSummary = await prisma.expense.aggregate({
+      where: {
+        date: { gte: start, lte: end },
+      },
+      _sum: { amount: true },
+    });
+
+    // 3. Data Produk Terjual (Agregasi per Produk)
+    const aggregatedProducts = await prisma.transactionDetail.groupBy({
+      by: ['productId'],
+      where: { transaction: financialWhere },
+      _sum: { quantity: true, subtotal: true },
+      orderBy: { _sum: { quantity: 'desc' } },
+    });
+
+    // Ambil nama produk untuk tabel dashboard
+    const productIds = aggregatedProducts.map(p => p.productId);
+    const productsInfo = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true }
+    });
+
+    const productsWithNames = aggregatedProducts.map(item => {
+      const info = productsInfo.find(p => p.id === item.productId);
+      return {
+        ...item,
+        name: info?.name || "Produk Terhapus",
+      };
+    });
+
+    // 4. FLAT DATA (Format Google Sheets - Denormalisasi)
+    // Sesuai skema: relasi ke User (kasir), Customer (pelanggan), dan PaymentMethod
+    const rawDetails = await prisma.transactionDetail.findMany({
+      where: { transaction: historyWhere },
+      include: {
+        product: { select: { name: true } },
+        transaction: {
+          include: {
+            customer: { select: { name: true } },
+            user: { select: { name: true } },
+            paymentMethod: { select: { name: true } }
+          }
+        }
+      },
+      orderBy: { transaction: { createdAt: 'desc' } }
+    });
+
+    const flatData = rawDetails.map(detail => ({
+      "ID_Transaksi": detail.transactionId,
+      "Tanggal": detail.transaction.createdAt.toISOString().split('T')[0],
+      "Jam": new Date(detail.transaction.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+      "Nama_Produk": detail.product?.name || "Produk Terhapus",
+      "Qty": detail.quantity,
+      "Harga_Jual_Item": Number(detail.priceAtTransaction), // Sesuai Schema: priceAtTransaction
+      "Harga_Beli_Item": Number(detail.purchasePriceAtTransaction), // Sesuai Schema
+      "Subtotal": Number(detail.subtotal),
+      "Profit_Item": Number(detail.totalMargin), // Sesuai Schema: totalMargin di TransactionDetail
+      "Pelanggan": detail.transaction.customer?.name || "Guest",
+      "Kasir": detail.transaction.user?.name || "System",
+      "Metode_Bayar": detail.transaction.paymentMethod?.name || "CASH",
+      "Total_Nota": Number(detail.transaction.finalAmount),
+      "Status": detail.transaction.status
+    }));
+
+    const totalRevenue = Number(summary._sum.finalAmount || 0);
+    const totalGrossProfit = Number(summary._sum.totalMargin || 0);
+    const totalExpenses = Number(expenseSummary._sum.amount || 0);
+    const totalNetProfit = totalGrossProfit - totalExpenses;
+
+    res.json({
+      summary: {
+        totalRevenue: totalRevenue,
+        totalProfit: totalGrossProfit, // fallback for client
+        totalGrossProfit: totalGrossProfit,
+        totalExpenses: totalExpenses,
+        totalNetProfit: totalNetProfit,
+        totalOrders: summary._count.id || 0,
+      },
+      products: productsWithNames, 
+      flatData: flatData,
+    });
+  } catch (error) {
+    console.error("❌ ERROR PRISMA:", error);
+    res.status(500).json({ error: "Gagal menarik data analisis. Pastikan query sesuai skema." });
   }
 };

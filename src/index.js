@@ -14,6 +14,7 @@ import shiftRoutes from './routes/shift.routes.js';
 import expenseRoutes from './routes/expense.routes.js';
 import voucherRoutes from './routes/voucher.routes.js';
 import broadcastRoutes from './routes/broadcast.routes.js';
+import midtransRoutes from './routes/midtrans.routes.js';
 import rfmRoutes from './routes/rfm.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import paymentRoutes from "./routes/payment.routes.js"; // 1. TAMBAHKAN INI
@@ -47,6 +48,7 @@ app.use('/api', voucherRoutes);
 app.use('/api', broadcastRoutes); // <-- GUNAKAN INI
 app.use('/api', rfmRoutes);
 app.use('/api', aiRoutes);
+app.use('/api', midtransRoutes);
 
 app.use("/api", paymentRoutes); // 3. TAMBAHKAN INI
 

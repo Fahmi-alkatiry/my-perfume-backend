@@ -71,6 +71,7 @@ model Customer {
   name                String         @map("nama_pelanggan")
   phoneNumber         String?        @unique @map("nomor_pelanggan")
   points              Int            @default(0) @map("poin_pelanggan")
+  nfcCardId           String?        @unique @map("id_kartu_nfc")
 
 
   recencyScore      Int?     @default(0) // Skor 1-5
@@ -267,3 +268,4 @@ model Voucher {
 
   @@map("voucher")
 }
+

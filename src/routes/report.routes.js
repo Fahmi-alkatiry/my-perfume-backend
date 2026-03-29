@@ -1,7 +1,7 @@
 
 // backend/src/routes/report.routes.js
 import { Router } from 'express';
-import { getDashboardCharts, getLowStockProducts, getReportSummary, getShiftHistory, getStockHistory, getTransactionHistory } from '../controllers/report.controller.js';
+import { getAdvancedReports, getDashboardCharts, getLowStockProducts, getReportSummary, getShiftHistory, getStockHistory, getTransactionHistory } from '../controllers/report.controller.js';
 import { protect, admin } from '../middleware/auth.middleware.js'; // Impor middleware
 import { getStockForecast } from '../controllers/forecast.controller.js';
 
@@ -26,4 +26,5 @@ router.get('/reports/forecast', protect, admin, getStockForecast);
 
 router.get('/reports/shifts', protect, admin, getShiftHistory);
 
+router.get('/reports/advanced', protect, admin, getAdvancedReports );
 export default router;

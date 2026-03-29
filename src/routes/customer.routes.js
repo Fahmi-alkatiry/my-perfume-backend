@@ -8,6 +8,8 @@ import {
   deleteCustomer,
   getCustomerHistory,
   getCustomerPointHistory,
+  getLapsedCustomers,
+  getCustomerByNfcId,
 } from "../controllers/customer.controller.js";
 
 // --- 1. IMPOR MIDDLEWARE ---
@@ -21,6 +23,8 @@ router
   .get(protect, getAllCustomers) // Siapapun bisa LIHAT
   .post(createCustomer); // Siapapun (Kasir) bisa BUAT pelanggan baru
 // .post( createCustomer); // Siapapun (Kasir) bisa BUAT pelanggan baru
+router.get("/customers/lapsed", protect, getLapsedCustomers);
+router.get("/customers/nfc/:nfcId", protect, getCustomerByNfcId);
 
 router
   .route("/customers/:id")
@@ -31,6 +35,8 @@ router
 router.get("/customers/:id/history", protect, getCustomerHistory);
 
 router.get("/customers/:id/points", protect, getCustomerPointHistory);
+
+
 
 export default router;
 // --- 3. JANGAN LUPA DAFTARKAN ROUTE INI DI app.js ---

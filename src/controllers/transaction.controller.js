@@ -1,16 +1,19 @@
 // backend/src/controllers/transaction.controller.js
 import { prisma } from "../lib/prisma.js";
 import { sendWAMessage } from "../services/whatsapp.service.js";
-import { snap } from "../services/midtrans.service.js";
+import { sendTransactionReceipt } from "../services/transaction.service.js";
+import MidtransClient from "midtrans-client";
+
+const snap = new MidtransClient.Snap({
+  isProduction: false,
+  serverKey: process.env.MIDTRANS_SERVER_KEY,
+  clientKey: process.env.MIDTRANS_CLIENT_KEY,
+});
 
 /**
  * @route   POST /api/transactions
  * @desc    Membuat transaksi baru (DENGAN LOGIKA POIN & DISKON)
  */
-
-// import { prisma } from "../lib/prisma.js";
-// import { sendWAMessage } from "../services/whatsapp.service.js";
-
 export const createTransaction = async (req, res) => {
   const { items, userId, paymentMethodId, customerId, usePoints, voucherId } = req.body;
 
@@ -87,10 +90,9 @@ export const createTransaction = async (req, res) => {
       }
     }
 
-    const finalAmount = amountAfterVoucher - discountByPoints > 0 ? amountAfterVoucher - discountByPoints : 0;
+    const finalAmount = (amountAfterVoucher - discountByPoints) > 0 ? (amountAfterVoucher - discountByPoints) : 0;
 
     // --- 4. PENENTUAN ALUR (CASH VS MIDTRANS) ---
-    // Cari nama payment method (Pastikan di DB ada nama 'CASH' atau 'MIDTRANS')
     const method = await prisma.paymentMethod.findUnique({ where: { id: paymentMethodId } });
     const isMidtrans = method?.name.toUpperCase().includes("MIDTRANS");
 
@@ -114,77 +116,77 @@ export const createTransaction = async (req, res) => {
         },
       });
 
-      // JIKA CASH: Langsung Eksekusi Stok & Poin
+      // JIKA CASH (Atau Non-Midtrans): Langsung Eksekusi Stok & Poin
       if (!isMidtrans) {
         for (const item of items) {
-          await tx.product.update({ where: { id: item.productId }, data: { stock: { decrement: item.quantity } } });
+          await tx.product.update({ 
+            where: { id: item.productId }, 
+            data: { stock: { decrement: item.quantity } } 
+          });
           await tx.stockHistory.create({
-            data: { productId: item.productId, quantity: -item.quantity, type: "OUT", notes: "Penjualan Cash", referenceType: "Transaction", referenceId: transaction.id }
+            data: { 
+              productId: item.productId, 
+              quantity: -item.quantity, 
+              type: "OUT", 
+              notes: "Penjualan Cash", 
+              referenceType: "Transaction", 
+              referenceId: transaction.id 
+            }
           });
         }
         if (customerId) {
-          await tx.customer.update({ where: { id: customerId }, data: { points: finalCustomerPoints, lastTransactionAt: new Date() } });
+          await tx.customer.update({ 
+            where: { id: customerId }, 
+            data: { points: finalCustomerPoints, lastTransactionAt: new Date() } 
+          });
           await tx.pointHistory.createMany({
             data: [
               { customerId, pointsChange: pointsEarned, reason: "Earned", transactionId: transaction.id },
               ...(pointsUsed > 0 ? [{ customerId, pointsChange: -pointsUsed, reason: "Redeemed", transactionId: transaction.id }] : [])
             ]
           });
-          // Kirim WA Langsung
-          sendReceiptWA(transaction.id, finalCustomerPoints);
         }
+        // Kirim Struk via Service
+        sendTransactionReceipt(transaction.id);
         return transaction;
       }
 
-      // JIKA MIDTRANS: Buat Token
+      // JIKA MIDTRANS: Buat Snap Token
+      // Catatan: Stok & Poin akan diproses via Webhook saat status Settlement/Settled
       const parameter = {
-        transaction_details: { order_id: transaction.id.toString(), gross_amount: Math.round(finalAmount) },
-        customer_details: customerId ? { first_name: (await tx.customer.findUnique({where:{id:customerId}})).name } : undefined
+        transaction_details: { 
+          order_id: transaction.id.toString(), 
+          gross_amount: Math.round(finalAmount) 
+        },
+        item_details: items.map(item => {
+          const p = productMap.get(item.productId);
+          return {
+            id: p.id.toString(),
+            price: Math.round(Number(p.sellingPrice)),
+            quantity: item.quantity,
+            name: p.name
+          };
+        }),
       };
+      
       const midtransTx = await snap.createTransaction(parameter);
       return { ...transaction, snapToken: midtransTx.token };
     });
 
     res.status(201).json(result);
   } catch (error) {
+    console.error("Transaction Error:", error);
     res.status(400).json({ error: error.message });
   }
 };
 
-// --- FUNGSI KIRIM WA (Pemisah agar bersih) ---
-async function sendReceiptWA(transactionId, currentPoints) {
-  const trx = await prisma.transaction.findUnique({
-    where: { id: transactionId },
-    include: { details: { include: { product: true } }, customer: true }
-  });
-
-  if (!trx.customer?.phoneNumber) return;
-
-  const itemsList = trx.details.map(d => `${d.product.name} x${d.quantity}`).join("\n");
-  const voucherRow = trx.discountByVoucher > 0 ? `🎟️ Voucher : -Rp ${Number(trx.discountByVoucher).toLocaleString("id-ID")}\n` : "";
-  const pointRow = trx.discountByPoints > 0 ? `🎁 Poin    : -Rp ${Number(trx.discountByPoints).toLocaleString("id-ID")}\n` : "";
-
-  const msg = `🧾 *My Perfume - Struk*
-👤: ${trx.customer.name}
-━━━━━━━━━━━━━━━━
-${itemsList}
-━━━━━━━━━━━━━━━━
-💵 Subtotal : Rp ${Number(trx.totalPrice).toLocaleString("id-ID")}
-${voucherRow}${pointRow}💳 *Total   : Rp ${Number(trx.finalAmount).toLocaleString("id-ID")}*
-━━━━━━━━━━━━━━━━
-🏆 Total Poin: ${currentPoints}
-🙏 Terima Kasih!`;
-
-  sendWAMessage(trx.customer.phoneNumber, msg);
-}
 /**
  * @desc    Membatalkan transaksi (VOID)
  * @route   POST /api/transactions/:id/cancel
  */
-
 export const cancelTransaction = async (req, res) => {
   const { id } = req.params;
-  const userId = req.user.id; // Admin yang melakukan pembatalan
+  const userId = req.user?.id; // Bisa null jika via webhook
 
   try {
     await prisma.$transaction(async (tx) => {
@@ -198,64 +200,52 @@ export const cancelTransaction = async (req, res) => {
       if (transaction.status === "CANCELLED")
         throw new Error("Transaksi sudah dibatalkan sebelumnya");
 
-      // 2. Kembalikan Stok Produk
-      for (const item of transaction.details) {
-        // Tambah stok kembali
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { increment: item.quantity } },
-        });
+      // 2. Kembalikan Stok Produk (Hanya jika transaksi tadinya COMPLETED)
+      // Jika PENDING, stok biasanya belum dikurangi (tergantung logika bisnis Anda)
+      // Namun di My Perfume POS, kita kurangi stok saat COMPLETED (Cash) atau Settlement (Midtrans).
+      // Tunggu, jika PENDING di Kasir, kita biasanya belum kurangi stok.
+      // TAPI jika ini VOID transaksi yang sudah sukses:
+      if (transaction.status === "COMPLETED") {
+        for (const item of transaction.details) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: item.quantity } },
+          });
 
-        // Catat di history stok (IN karena pembatalan)
-        await tx.stockHistory.create({
-          data: {
-            productId: item.productId,
-            quantity: item.quantity,
-            type: "IN",
-            notes: `Pembatalan Transaksi #${transaction.id}`,
-            referenceType: "Cancellation",
-            referenceId: transaction.id,
-            userId: userId,
-          },
-        });
-      }
-
-      // 3. Revisi Poin Pelanggan (Jika ada pelanggan)
-      if (transaction.customerId) {
-        let pointsChange = 0;
-
-        // a. Tarik kembali poin yang didapat (Kurangi)
-        if (transaction.pointsEarned > 0) {
-          pointsChange -= transaction.pointsEarned;
-          await tx.pointHistory.create({
+          await tx.stockHistory.create({
             data: {
-              customerId: transaction.customerId,
-              pointsChange: -transaction.pointsEarned,
-              reason: `Cancel TRX #${transaction.id} (Revert Earned)`,
-              transactionId: transaction.id,
+              productId: item.productId,
+              quantity: item.quantity,
+              type: "IN",
+              notes: `Pembatalan Transaksi #${transaction.id}`,
+              referenceType: "Cancellation",
+              referenceId: transaction.id,
+              userId: userId || null,
             },
           });
         }
 
-        // b. Kembalikan poin yang dipakai diskon (Tambah)
-        if (transaction.pointsUsed > 0) {
-          pointsChange += transaction.pointsUsed;
-          await tx.pointHistory.create({
-            data: {
-              customerId: transaction.customerId,
-              pointsChange: transaction.pointsUsed,
-              reason: `Cancel TRX #${transaction.id} (Refund Used)`,
-              transactionId: transaction.id,
-            },
-          });
-        }
+        // 3. Revisi Poin Pelanggan
+        if (transaction.customerId) {
+          let pointsChange = 0;
+          if (transaction.pointsEarned > 0) pointsChange -= transaction.pointsEarned;
+          if (transaction.pointsUsed > 0) pointsChange += transaction.pointsUsed;
 
-        // Update total poin di master customer
-        if (pointsChange !== 0) {
-          await tx.customer.update({
-            where: { id: transaction.customerId },
-            data: { points: { increment: pointsChange } },
-          });
+          if (pointsChange !== 0) {
+            await tx.customer.update({
+              where: { id: transaction.customerId },
+              data: { points: { increment: pointsChange } },
+            });
+            
+            await tx.pointHistory.create({
+              data: {
+                customerId: transaction.customerId,
+                pointsChange: pointsChange,
+                reason: `Batalkan TRX #${transaction.id}`,
+                transactionId: transaction.id,
+              },
+            });
+          }
         }
       }
 
@@ -269,9 +259,7 @@ export const cancelTransaction = async (req, res) => {
     res.json({ message: "Transaksi berhasil dibatalkan" });
   } catch (error) {
     console.error(error);
-    res
-      .status(400)
-      .json({ error: error.message || "Gagal membatalkan transaksi" });
+    res.status(400).json({ error: error.message || "Gagal membatalkan transaksi" });
   }
 };
 
@@ -280,12 +268,11 @@ export const cancelTransaction = async (req, res) => {
  * @route   PUT /api/transactions/:id/assign-customer
  */
 export const assignCustomerToTransaction = async (req, res) => {
-  const { id } = req.params; // ID Transaksi
-  const { customerId } = req.body; // ID Pelanggan yang mau ditautkan
+  const { id } = req.params;
+  const { customerId } = req.body;
 
   try {
     await prisma.$transaction(async (tx) => {
-      // 1. Cek Transaksi
       const transaction = await tx.transaction.findUnique({
         where: { id: Number(id) },
       });
@@ -296,11 +283,8 @@ export const assignCustomerToTransaction = async (req, res) => {
       if (transaction.status !== "COMPLETED")
         throw new Error("Hanya transaksi sukses yang bisa di-claim.");
 
-      // 2. Hitung Poin yang seharusnya didapat
-      // Rumus: Total Bayar / 30.000
       const pointsEarned = Math.floor(Number(transaction.finalAmount) / 30000);
 
-      // 3. Update Transaksi
       await tx.transaction.update({
         where: { id: Number(id) },
         data: {
@@ -309,7 +293,6 @@ export const assignCustomerToTransaction = async (req, res) => {
         },
       });
 
-      // 4. Update Pelanggan (Tambah Poin) & Buat History
       if (pointsEarned > 0) {
         await tx.customer.update({
           where: { id: Number(customerId) },

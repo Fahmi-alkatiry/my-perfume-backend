@@ -1,83 +1,113 @@
-// backend/src/controllers/ai.controller.js
 import axios from "axios";
 import { prisma } from "../lib/prisma.js";
 
-const formatRp = (num) =>
-  "Rp " + Number(num || 0).toLocaleString("id-ID");
+const formatRp = (n) =>
+  "Rp " + Number(n || 0).toLocaleString("id-ID");
 
-const formatDate = (d) =>
-  d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+const todayStart = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
 
-const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
-const endOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+const monthStart = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+};
 
-const detectIntent = (question = "") => {
-  const q = question.toLowerCase();
+const lastMonthStart = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() - 1, 1);
+};
 
-  if (q.match(/hari ini|today|sekarang/)) return "TODAY_REPORT";
-  if (q.match(/kemarin/)) return "YESTERDAY_REPORT";
-  if (q.match(/minggu|7 hari/)) return "WEEKLY_TREND";
-  if (q.match(/bulan/)) return "MONTHLY_TREND";
-  if (q.match(/tahun/)) return "YEARLY_REPORT";
-
-  if (q.match(/stok|habis|menipis|gudang/)) return "STOCK_ALERT";
-  if (q.match(/produk terlaris|paling laku/)) return "BEST_SELLER";
-  if (q.match(/profit|margin|untung/)) return "PROFIT_ANALYSIS";
-  if (q.match(/pelanggan|customer/)) return "CUSTOMER_ANALYSIS";
-  if (q.match(/saran|rekomendasi|apa yang harus/)) return "RECOMMENDATION";
-
-  return "GENERAL_ANALYSIS";
+const lastMonthEnd = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1);
 };
 
 export const chatWithData = async (req, res) => {
   try {
     const { question } = req.body;
+
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: "API Key belum diset" });
 
-    const intent = detectIntent(question);
-    const now = new Date();
+    if (!apiKey)
+      return res.status(500).json({ error: "Gemini API Key belum ada" });
 
-    // ===============================
-    // QUERY DATA PARALEL (INTELLIGENT)
-    // ===============================
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const yearStart = new Date(new Date().getFullYear(), 0, 1);
+
+    // =========================
+    // QUERY DATABASE
+    // =========================
+
     const [
-      today,
-      week,
-      year,
-      bestProducts,
+      todaySales,
+      weekSales,
+      monthSales,
+      lastMonthSales,
+      yearSales,
+      bestProductsRaw,
       lowStock,
-      paymentFav,
+      paymentMethods,
       topCustomers,
-      expenses
+      inactiveCustomers,
+      topCashier,
+      expenses,
+      vouchers,
+      hourlyTransactions
     ] = await Promise.all([
       prisma.transaction.aggregate({
         where: {
-          createdAt: { gte: startOfDay(now), lt: endOfDay(now) },
+          createdAt: { gte: todayStart() },
           status: "COMPLETED"
         },
         _sum: { finalAmount: true, totalMargin: true },
-        _count: { id: true }
+        _count: true
       }),
 
       prisma.transaction.aggregate({
         where: {
-          createdAt: { gte: new Date(now.setDate(now.getDate() - 7)) },
+          createdAt: { gte: sevenDaysAgo },
           status: "COMPLETED"
         },
         _sum: { finalAmount: true },
-        _count: { id: true }
+        _count: true
       }),
 
       prisma.transaction.aggregate({
         where: {
-          createdAt: { gte: new Date(new Date().getFullYear(), 0, 1) },
+          createdAt: { gte: monthStart() },
           status: "COMPLETED"
         },
         _sum: { finalAmount: true, totalMargin: true },
-        _count: { id: true }
+        _count: true
       }),
 
+      prisma.transaction.aggregate({
+        where: {
+          createdAt: {
+            gte: lastMonthStart(),
+            lt: lastMonthEnd()
+          },
+          status: "COMPLETED"
+        },
+        _sum: { finalAmount: true, totalMargin: true },
+        _count: true
+      }),
+
+      prisma.transaction.aggregate({
+        where: {
+          createdAt: { gte: yearStart },
+          status: "COMPLETED"
+        },
+        _sum: { finalAmount: true, totalMargin: true },
+        _count: true
+      }),
+
+      // ambil produk terlaris
       prisma.transactionDetail.groupBy({
         by: ["productId"],
         _sum: { quantity: true, totalMargin: true },
@@ -86,14 +116,21 @@ export const chatWithData = async (req, res) => {
       }),
 
       prisma.product.findMany({
-        where: { stock: { lte: prisma.product.fields.minimumStock } },
-        select: { name: true, stock: true },
+        where: {
+          stock: {
+            lte: prisma.product.fields.minimumStock
+          }
+        },
+        select: {
+          name: true,
+          stock: true
+        },
         take: 5
       }),
 
       prisma.transaction.groupBy({
         by: ["paymentMethodId"],
-        _count: { id: true },
+        _count: true,
         orderBy: { _count: { id: "desc" } },
         take: 3
       }),
@@ -101,95 +138,186 @@ export const chatWithData = async (req, res) => {
       prisma.customer.findMany({
         orderBy: { points: "desc" },
         take: 5,
-        select: { name: true, points: true }
+        select: {
+          name: true,
+          points: true
+        }
+      }),
+
+      prisma.customer.findMany({
+        where: {
+          lastTransactionAt: {
+            lt: thirtyDaysAgo
+          }
+        },
+        select: { name: true },
+        take: 5
+      }),
+
+      prisma.transaction.groupBy({
+        by: ["userId"],
+        _count: true,
+        orderBy: { _count: { id: "desc" } },
+        take: 3
       }),
 
       prisma.expense.aggregate({
         where: {
-          date: { gte: new Date(new Date().getFullYear(), 0, 1) }
+          date: { gte: monthStart() }
         },
         _sum: { amount: true }
+      }),
+
+      prisma.voucher.findMany({
+        where: {
+          isActive: true
+        },
+        take: 5
+      }),
+
+      prisma.transaction.findMany({
+        where: {
+          createdAt: { gte: sevenDaysAgo }
+        },
+        select: { createdAt: true }
       })
     ]);
 
-    // ===============================
-    // INSIGHT ENGINE (RULE BASED)
-    // ===============================
-    const netProfit =
-      Number(year._sum.totalMargin || 0) -
+    // =========================
+    // AMBIL NAMA PRODUK
+    // =========================
+
+    const productIds = bestProductsRaw.map((p) => p.productId);
+
+    const productNames = await prisma.product.findMany({
+      where: {
+        id: { in: productIds }
+      },
+      select: {
+        id: true,
+        name: true
+      }
+    });
+
+    const bestProducts = bestProductsRaw.map((p) => {
+      const product = productNames.find((x) => x.id === p.productId);
+
+      return {
+        name: product?.name || `Produk ${p.productId}`,
+        quantity: p._sum.quantity
+      };
+    });
+
+    // =========================
+    // ANALISIS DATA
+    // =========================
+
+    const profitNet =
+      Number(yearSales._sum.totalMargin || 0) -
       Number(expenses._sum.amount || 0);
 
+    const growth =
+      Number(monthSales._sum.finalAmount || 0) -
+      Number(lastMonthSales._sum.finalAmount || 0);
+
     const insights = [];
+
+    if (growth > 0) insights.push("📈 Penjualan bulan ini meningkat.");
+
+    if (growth < 0) insights.push("📉 Penjualan bulan ini menurun.");
+
     if (lowStock.length > 0)
-      insights.push("⚠️ Beberapa produk stoknya kritis, segera restock.");
+      insights.push("⚠️ Beberapa produk harus segera restock.");
 
-    if (today._count.id === 0)
-      insights.push("📉 Hari ini belum ada transaksi, pertimbangkan promo cepat.");
+    if (todaySales._count === 0)
+      insights.push("🚨 Hari ini belum ada transaksi.");
 
-    if (netProfit < 0)
-      insights.push("🚨 Profit bersih negatif, cek pengeluaran operasional.");
+    if (profitNet < 0)
+      insights.push("⚠️ Profit bersih negatif.");
 
-    // ===============================
-    // CONTEXT SUPER LENGKAP
-    // ===============================
+    // =========================
+    // CONTEXT AI
+    // =========================
+
     const context = `
-[WAKTU]
-- Hari Ini: ${formatDate(new Date())}
+===== DATA BISNIS TOKO PARFUM =====
 
-[RINGKASAN HARI INI]
-- Omzet: **${formatRp(today._sum.finalAmount)}**
-- Profit Kotor: **${formatRp(today._sum.totalMargin)}**
-- Transaksi: **${today._count.id}**
+PENJUALAN HARI INI
+Omzet: ${formatRp(todaySales._sum.finalAmount)}
+Transaksi: ${todaySales._count}
 
-[RINGKASAN TAHUN INI]
-- Total Omzet: **${formatRp(year._sum.finalAmount)}**
-- Profit Kotor: **${formatRp(year._sum.totalMargin)}**
-- Total Pengeluaran: **${formatRp(expenses._sum.amount)}**
-- Profit Bersih: **${formatRp(netProfit)}**
+PENJUALAN BULAN INI
+Omzet: ${formatRp(monthSales._sum.finalAmount)}
+Profit: ${formatRp(monthSales._sum.totalMargin)}
 
-[PRODUK TERLARIS]
-${bestProducts.map((p, i) => `${i + 1}. Produk ID ${p.productId} – Terjual ${p._sum.quantity}`).join("\n")}
+PENJUALAN BULAN LALU
+Omzet: ${formatRp(lastMonthSales._sum.finalAmount)}
 
-[STOK MENIPIS]
-${lowStock.map(p => `- ${p.name} (Sisa ${p.stock})`).join("\n") || "Aman"}
+PENJUALAN TAHUN INI
+Omzet: ${formatRp(yearSales._sum.finalAmount)}
+Profit: ${formatRp(yearSales._sum.totalMargin)}
 
-[PELANGGAN TERBAIK]
-${topCustomers.map(c => `- ${c.name} (${c.points} poin)`).join("\n")}
+PENGELUARAN BULAN INI
+${formatRp(expenses._sum.amount)}
 
-[INSIGHT OTOMATIS]
-${insights.join("\n") || "Tidak ada peringatan"}
+PROFIT BERSIH
+${formatRp(profitNet)}
+
+PRODUK TERLARIS
+${bestProducts
+  .map(
+    (p, i) =>
+      `${i + 1}. ${p.name} terjual ${p.quantity} unit`
+  )
+  .join("\n")}
+
+STOK MENIPIS
+${lowStock.map((p) => `${p.name} (${p.stock})`).join("\n")}
+
+CUSTOMER TERBAIK
+${topCustomers
+  .map((c) => `${c.name} (${c.points} poin)`)
+  .join("\n")}
+
+CUSTOMER TIDAK AKTIF
+${inactiveCustomers.map((c) => c.name).join("\n")}
+
+INSIGHT SISTEM
+${insights.join("\n")}
 `;
 
     const prompt = `
-Anda adalah **AI Business Analyst untuk Toko Parfum**.
+Anda adalah AI Business Intelligence untuk sistem POS parfum.
 
-DATA INTERNAL TOKO:
+Gunakan data berikut untuk menjawab pertanyaan user.
+
 ${context}
 
-PERTANYAAN USER:
+Pertanyaan user:
 "${question}"
 
-ATURAN JAWABAN:
-1. Jawab berdasarkan DATA
-2. Gunakan poin-poin (tanpa tabel)
-3. Tebalkan angka penting
-4. Berikan ANALISIS & SARAN
-5. Gunakan emoji secukupnya
+Aturan:
+- Jawab berdasarkan data
+- Gunakan bullet point
+- Tebalkan angka penting
+- Berikan analisis bisnis
+- Berikan saran peningkatan penjualan
 `;
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`;
+
     const response = await axios.post(url, {
       contents: [{ parts: [{ text: prompt }] }]
     });
 
     const answer =
       response.data?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "Tidak ada respon AI.";
+      "AI tidak memberi respon.";
 
-    res.json({ answer, intent });
+    res.json({ answer });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "AI sedang bermasalah" });
+    res.status(500).json({ error: "AI Error" });
   }
 };

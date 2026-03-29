@@ -12,8 +12,8 @@ export const getAllCustomers = async (req, res) => {
     const search = req.query.search || "";
 
     // sorting
-    const sort = req.query.sort || "name";     // field
-    const order = req.query.order || "asc";    // asc | desc
+    const sort = req.query.sort || "name"; // field
+    const order = req.query.order || "asc"; // asc | desc
 
     const skip = (page - 1) * limit;
 
@@ -57,38 +57,51 @@ export const getAllCustomers = async (req, res) => {
 };
 
 /**
- * @desc    Membuat pelanggan baru
+ * @desc    Membuat pelanggan baru (Safe Version)
  */
 export const createCustomer = async (req, res) => {
+  // 1. Destructure data agar tidak ada field sampah yang masuk ke DB
+  const { name, phoneNumber } = req.body;
+
+  if (!name || !phoneNumber) {
+    return res.status(400).json({ error: "Nama dan Nomor HP wajib diisi." });
+  }
+
   try {
+    // 2. Eksekusi Create
     const newCustomer = await prisma.customer.create({
-      data: req.body, // { name, phoneNumber }
+      data: {
+        name,
+        phoneNumber, // Pastikan di frontend sudah dipanggil normalizePhone()
+      },
     });
 
-    // ✅ Kirim WA ke customer baru
-    if (newCustomer.phoneNumber) {
-      const message = `Halo ${newCustomer.name} 👋
+    // 3. ✅ Kirim WA Welcome (Non-blocking)
+    const welcomeMessage = `Halo *${newCustomer.name}* 👋
 
-Terima kasih sudah menjadi pelanggan *My Perfume* ✨  
+Terima kasih sudah menjadi pelanggan *My Perfume* ✨
 Semoga aroma pilihan kami menemani harimu 😊
 
-Salam,  
+_Simpan nomor ini untuk info promo & katalog terbaru._
 *My Perfume* 🌸`;
-      // jangan block response jika WA gagal
-      sendWAMessage(newCustomer.phoneNumber, message).catch((err) => {
-        console.error("Gagal kirim WA:", err.message);
-      });
-    }
+
+    // Kita panggil tanpa 'await' supaya response ke kasir gak nunggu WA terkirim
+    sendWAMessage(newCustomer.phoneNumber, welcomeMessage).catch((err) => {
+      console.error("[WA Error]: Gagal kirim pesan welcome ->", err.message);
+    });
 
     return res.status(201).json(newCustomer);
   } catch (error) {
-    console.error(error);
-
+    // 4. Handle Unique Constraint (P2002)
     if (error.code === "P2002") {
-      return res.status(400).json({ error: "Nomor HP sudah terdaftar." });
+      console.warn(`[P2002] Duplikasi nomor HP: ${phoneNumber}`);
+      return res.status(400).json({
+        error: "Nomor HP ini sudah terdaftar di sistem.",
+      });
     }
 
-    return res.status(500).json({ error: "Gagal membuat pelanggan" });
+    console.error("[CreateCustomer Error]:", error);
+    return res.status(500).json({ error: "Gagal membuat data pelanggan." });
   }
 };
 
@@ -124,13 +137,13 @@ export const updateCustomer = async (req, res) => {
     });
     res.json(updatedCustomer);
   } catch (error) {
-    console.error(error);
     if (error.code === "P2002") {
       return res.status(400).json({ error: "Nomor HP sudah terdaftar." });
     }
     if (error.code === "P2025") {
       return res.status(404).json({ error: "Pelanggan tidak ditemukan" });
     }
+    console.error("[UpdateCustomer Error]:", error);
     res.status(500).json({ error: "Gagal mengupdate pelanggan" });
   }
 };
@@ -146,7 +159,6 @@ export const deleteCustomer = async (req, res) => {
     });
     res.status(204).send();
   } catch (error) {
-    console.error(error);
     if (error.code === "P2025") {
       return res.status(404).json({ error: "Pelanggan tidak ditemukan" });
     }
@@ -157,6 +169,7 @@ export const deleteCustomer = async (req, res) => {
           "Pelanggan tidak bisa dihapus karena memiliki riwayat transaksi.",
       });
     }
+    console.error("[DeleteCustomer Error]:", error);
     res.status(500).json({ error: "Gagal menghapus pelanggan" });
   }
 };
@@ -219,5 +232,67 @@ export const getCustomerPointHistory = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Gagal mengambil riwayat poin" });
+  }
+};
+
+export const getLapsedCustomers = async (req, res) => {
+  try {
+    // 1. Tentukan ambang batas waktu (30 hari yang lalu)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // 2. Query ke database
+    const lapsedCustomers = await prisma.customer.findMany({
+      where: {
+        OR: [
+          {
+            lastTransactionAt: {
+              lte: thirtyDaysAgo, // terakhir transaksi lebih dari 30 hari
+            },
+          },
+          {
+            lastTransactionAt: null, // pelanggan yang belum pernah transaksi
+          },
+        ],
+      },
+      orderBy: {
+        lastTransactionAt: "desc",
+      },
+      select: {
+        id: true,
+        name: true,
+        phoneNumber: true,
+        points: true,
+        lastTransactionAt: true,
+      },
+    });
+    return res.status(200).json({
+      count: lapsedCustomers.length,
+      data: lapsedCustomers,
+    });
+  } catch (error) {
+    console.error("[GetLapsedCustomers Error]:", error);
+    return res
+      .status(500)
+      .json({ error: "Gagal mengambil data pelanggan lama." });
+  }
+};
+
+/**
+ * @desc    Mendapatkan pelanggan berdasarkan NFC ID bawaan pabrik (Fixed ID/UID)
+ * @route   GET /api/customers/nfc/:nfcId
+ */
+export const getCustomerByNfcId = async (req, res) => {
+  const { nfcId } = req.params;
+  try {
+    const customer = await prisma.customer.findUnique({
+      where: { nfcCardId: nfcId }
+    });
+    
+    if (!customer) return res.status(404).json({ error: "Kartu tidak terdaftar" });
+    res.json(customer);
+  } catch (error) {
+    console.error("[GetCustomerByNfcId Error]:", error);
+    res.status(500).json({ error: "Gagal mencari pelanggan berdasarkan kartu NFC" });
   }
 };
