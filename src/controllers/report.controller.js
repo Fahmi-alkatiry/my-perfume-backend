@@ -101,9 +101,8 @@ export const getTransactionHistory = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // 2. Buat 'where' clause (filter)
-    const where = {
-      status: "COMPLETED",
-    };
+    // Tampilkan semua status (COMPLETED, PENDING, CANCELLED)
+    const where = {};
 
     // Tambahkan filter tanggal jika ada
     if (startDate && endDate) {
@@ -409,14 +408,19 @@ export const getAdvancedReports = async (req, res) => {
     const start = new Date(`${startDate}T00:00:00+07:00`);
     const end = new Date(`${endDate}T23:59:59+07:00`);
 
-    const whereClause = {
+    const financialWhere = {
       createdAt: { gte: start, lte: end },
       status: "COMPLETED",
     };
 
+    const historyWhere = {
+      createdAt: { gte: start, lte: end },
+      // Tampilkan status selain COMPLETED jika ada (misal PENDING, CANCELLED)
+    };
+
     // 2. Ringkasan Utama (Aggregasi)
     const summary = await prisma.transaction.aggregate({
-      where: whereClause,
+      where: financialWhere,
       _sum: { finalAmount: true, totalMargin: true },
       _count: { id: true },
     });
@@ -431,7 +435,7 @@ export const getAdvancedReports = async (req, res) => {
     // 3. Data Produk Terjual (Agregasi per Produk)
     const aggregatedProducts = await prisma.transactionDetail.groupBy({
       by: ['productId'],
-      where: { transaction: whereClause },
+      where: { transaction: financialWhere },
       _sum: { quantity: true, subtotal: true },
       orderBy: { _sum: { quantity: 'desc' } },
     });
@@ -454,7 +458,7 @@ export const getAdvancedReports = async (req, res) => {
     // 4. FLAT DATA (Format Google Sheets - Denormalisasi)
     // Sesuai skema: relasi ke User (kasir), Customer (pelanggan), dan PaymentMethod
     const rawDetails = await prisma.transactionDetail.findMany({
-      where: { transaction: whereClause },
+      where: { transaction: historyWhere },
       include: {
         product: { select: { name: true } },
         transaction: {

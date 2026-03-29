@@ -1,6 +1,7 @@
 // backend/src/controllers/transaction.controller.js
 import { prisma } from "../lib/prisma.js";
 import { sendWAMessage } from "../services/whatsapp.service.js";
+import { sendTransactionReceipt } from "../services/transaction.service.js";
 
 /**
  * @desc    Membuat transaksi baru (DENGAN LOGIKA POIN & DISKON)
@@ -223,7 +224,7 @@ export const createTransaction = async (req, res) => {
 
           pointsEarned,
           pointsUsed,
-          status: "COMPLETED",
+          status: Number(paymentMethodId) === 3 ? "PENDING" : "COMPLETED",
           userId: userId || null,
           paymentMethodId: paymentMethodId || null,
           customerId: customerId || null,
@@ -255,82 +256,10 @@ export const createTransaction = async (req, res) => {
         })),
       });
 
-      if (customerId) {
-        // Pastikan bukan Guest
-        // Ambil data customer (pastikan sudah di-fetch sebelumnya)
-        const customerData = await tx.customer.findUnique({
-          where: { id: Number(customerId) },
-        });
-
-        if (customerData && customerData.phoneNumber) {
-          const dateStr = new Date().toLocaleDateString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-          });
-
-          const timeStr = new Date().toLocaleTimeString("id-ID", {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-
-          // Buat detail item
-          const itemsList = items
-            .map((item) => {
-              const p = productMap.get(item.productId);
-              return `${p.name} x${item.quantity} = Rp ${(
-                p.sellingPrice * item.quantity
-              ).toLocaleString("id-ID")}`;
-            })
-            .join("\n");
-
-          const totalAllDiscount =
-            (discountByVoucher || 0) + (discountByPoints || 0);
-
-          // 2. Susun baris diskon secara kondisional
-          const voucherRow =
-            discountByVoucher > 0
-              ? `🎟️ Voucher       : -Rp ${Number(discountByVoucher).toLocaleString("id-ID")}\n`
-              : "";
-
-          const pointDiscountRow =
-            discountByPoints > 0
-              ? `🎁 Potong Poin   : -Rp ${Number(discountByPoints).toLocaleString("id-ID")}\n`
-              : "";
-
-          const message = `🧾 *My Perfume - Struk Belanja*
-
-📍 Jl. Raya Panglegur, Kota Pamekasan
-🗓️ ${dateStr} | ⏰ ${timeStr}
-👤 Pelanggan: ${customerData.name}
-
-━━━━━━━━━━━━━━━━
-   *Detail Pesanan*
-━━━━━━━━━━━━━━━━
-${itemsList}
-
-━━━━━━━━━━━━━━━━
-💰 *Ringkasan*
-━━━━━━━━━━━━━━━━
-💵 Subtotal      : Rp ${Number(totalAmount).toLocaleString("id-ID")}
-${voucherRow}${pointDiscountRow}${totalAllDiscount > 0 ? `━━━━━━━━━━━━━━━━\n` : ""}💳 *Total Bayar   : Rp ${Number(finalAmount).toLocaleString("id-ID")}*
-
-━━━━━━━━━━━━━━━━
-✨ *Info Poin*
-━━━━━━━━━━━━━━━━
-📈 Poin Didapat : +${pointsEarned}
-📉 Poin Ditukar : -${pointsUsed}
-🏆 *Total Poin   : ${finalCustomerPoints}*
-
-━━━━━━━━━━━━━━━━
-🙏 Terima kasih telah berbelanja di My Perfume!
-Simpan nomor ini untuk info promo dan katalog terbaru.
-IG: @Myperfumeee_
-`;
-
-          // Kirim (Fire and Forget - jangan await agar kasir tidak nunggu)
-          sendWAMessage(customerData.phoneNumber, message);
-        }
+      // Kirim Struk (Hanya jika bukan Midtrans)
+      if (Number(paymentMethodId) !== 3) {
+        // Gunakan service agar konsisten dengan Webhook
+        sendTransactionReceipt(createdTransaction.id);
       }
 
       return createdTransaction;
