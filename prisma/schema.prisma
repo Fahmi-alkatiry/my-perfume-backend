@@ -47,6 +47,11 @@ enum DiscountType {
   PERCENTAGE  // Potongan Persen (10%)
 }
 
+enum StoreCashHistoryType {
+  IN
+  OUT
+}
+
 // ======================================
 // MODELS
 // ======================================
@@ -148,6 +153,8 @@ model Transaction {
   
   voucherId       Int?      @map("id_voucher")
   voucher         Voucher?  @relation(fields: [voucherId], references: [id])
+
+  storeCashHistories StoreCashHistory[]
 
   @@map("transaksi")
 }
@@ -269,3 +276,28 @@ model Voucher {
   @@map("voucher")
 }
 
+// ======================================
+// DANA CADANGAN TOKO (STORE CASH)
+// ======================================
+
+model StoreCash {
+  id        Int      @id @default(autoincrement()) @map("id_kas")
+  balance   Decimal  @default(0) @map("saldo")
+  updatedAt DateTime @updatedAt @map("diupdate_pada")
+
+  @@map("kas_toko")
+}
+
+model StoreCashHistory {
+  id            Int                  @id @default(autoincrement()) @map("id_riwayat")
+  amount        Decimal              @map("jumlah")
+  type          StoreCashHistoryType // IN, OUT
+  description   String               @map("keterangan")
+  
+  transactionId Int?                 @map("id_transaksi")
+  transaction   Transaction?         @relation(fields: [transactionId], references: [id])
+  
+  createdAt     DateTime             @default(now()) @map("tanggal")
+
+  @@map("riwayat_kas_toko")
+}

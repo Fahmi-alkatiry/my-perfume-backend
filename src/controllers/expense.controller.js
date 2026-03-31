@@ -62,3 +62,24 @@ export const deleteExpense = async (req, res) => {
     res.status(500).json({ error: 'Gagal menghapus pengeluaran' });
   }
 };
+
+// Update Expense
+export const updateExpense = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, amount, category, date } = req.body;
+
+    const updatedExpense = await prisma.expense.update({
+      where: { id: Number(id) },
+      data: {
+        name,
+        amount: amount ? Number(amount) : undefined,
+        category,
+        date: date ? new Date(date) : undefined
+      }
+    });
+    res.json(updatedExpense);
+  } catch (error) {
+    res.status(500).json({ error: 'Gagal mengubah pengeluaran' });
+  }
+};

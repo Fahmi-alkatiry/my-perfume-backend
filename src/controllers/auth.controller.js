@@ -83,7 +83,7 @@ export const login = async (req, res) => {
     };
 
     const token = jwt.sign(tokenPayload, JWT_SECRET, {
-      expiresIn: '1d', // Token berlaku selama 1 hari
+      expiresIn: '30d', // Token berlaku selama 30 hari
     });
 
     // Kirim token sebagai respons

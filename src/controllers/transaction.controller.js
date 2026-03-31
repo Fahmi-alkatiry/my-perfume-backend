@@ -255,6 +255,39 @@ export const createTransaction = async (req, res) => {
         })),
       });
 
+      // --- E. LOGIKA DANA CADANGAN TOKO (20% DARI MARGIN) ---
+      const margin = Number(createdTransaction.totalMargin || 0);
+      if (margin > 0 && createdTransaction.status === "COMPLETED") {
+        const reserveFund = Math.floor(margin * 0.20);
+        
+        if (reserveFund > 0) {
+          // Cari saldo saat ini
+          const currentStoreCash = await tx.storeCash.findFirst();
+          
+          if (currentStoreCash) {
+            await tx.storeCash.update({
+              where: { id: currentStoreCash.id },
+              data: { balance: { increment: reserveFund } }
+            });
+          } else {
+            await tx.storeCash.create({
+              data: { balance: reserveFund }
+            });
+          }
+
+          // Catat Riwayat
+          await tx.storeCashHistory.create({
+            data: {
+              amount: reserveFund,
+              type: "IN",
+              description: `Alokasi margin (20%) dari Trx #${createdTransaction.id}`,
+              transactionId: createdTransaction.id
+            }
+          });
+        }
+      }
+
+
       if (customerId) {
         // Pastikan bukan Guest
         // Ambil data customer (pastikan sudah di-fetch sebelumnya)
@@ -329,7 +362,14 @@ IG: @Myperfumeee_
 `;
 
           // Kirim (Fire and Forget - jangan await agar kasir tidak nunggu)
-          sendWAMessage(customerData.phoneNumber, message);
+          try {
+            // Tetap tanpa await jika ingin cepat, tapi tambahkan .catch
+            sendWAMessage(customerData.phoneNumber, message).catch((err) => {
+              console.error("Gagal kirim WA (Background):", err.message);
+            });
+          } catch (e) {
+            console.error("Fungsi sendWAMessage bermasalah:", e);
+          }
         }
       }
 
@@ -427,7 +467,31 @@ export const cancelTransaction = async (req, res) => {
         }
       }
 
-      // 4. Ubah Status Transaksi
+      // 4. Tarik Kembali Dana Cadangan Toko (Jika Ada)
+      const storeCashHistory = await tx.storeCashHistory.findFirst({
+        where: { transactionId: transaction.id, type: "IN" }
+      });
+
+      if (storeCashHistory) {
+        const currentStoreCash = await tx.storeCash.findFirst();
+        if (currentStoreCash) {
+          await tx.storeCash.update({
+            where: { id: currentStoreCash.id },
+            data: { balance: { decrement: storeCashHistory.amount } }
+          });
+
+          await tx.storeCashHistory.create({
+            data: {
+              amount: storeCashHistory.amount,
+              type: "OUT",
+              description: `Batal Trx #${transaction.id} (Revert Margin)`,
+              transactionId: transaction.id
+            }
+          });
+        }
+      }
+
+      // 5. Ubah Status Transaksi
       await tx.transaction.update({
         where: { id: transaction.id },
         data: { status: "CANCELLED" },

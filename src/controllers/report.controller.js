@@ -53,18 +53,28 @@ export const getReportSummary = async (req, res) => {
       _sum: { amount: true },
     });
 
+    // --- 5b. Query Agregasi ALOKASI DANA CADANGAN TOKO ---
+    const storeCashSummary = await prisma.storeCashHistory.aggregate({
+      where: {
+        createdAt: { gte: startOfToday, lt: endOfToday },
+        type: "IN",
+      },
+      _sum: { amount: true },
+    });
+
     // --- 6. Kalkulasi Akhir ---
     const totalRevenue = Number(transactionSummary._sum.finalAmount || 0);
     const totalGrossProfit = Number(transactionSummary._sum.totalMargin || 0);
     const totalExpenses = Number(expenseSummary._sum.amount || 0);
+    const totalStoreCashAllocation = Number(storeCashSummary._sum.amount || 0);
     
     // Hitung Total Diskon (Poin + Voucher)
     const totalDiscountPoints = Number(transactionSummary._sum.discountByPoints || 0);
     const totalDiscountVoucher = Number(transactionSummary._sum.discountByVoucher || 0);
     const totalDiscountsGiven = totalDiscountPoints + totalDiscountVoucher;
 
-    // Hitung Net Profit
-    const totalNetProfit = totalGrossProfit - totalExpenses;
+    // Hitung Net Profit (Laba Bersih yang bisa ditarik = Gross Profit - Expenses - Store Cash Allocation)
+    const totalNetProfit = totalGrossProfit - totalExpenses - totalStoreCashAllocation;
 
     // 7. Format Hasil
     const summary = {
@@ -72,6 +82,7 @@ export const getReportSummary = async (req, res) => {
       todayProfit: totalGrossProfit,
       todayNetProfit: totalNetProfit,
       todayExpenses: totalExpenses,
+      todayStoreCashAllocated: totalStoreCashAllocation,
       todayDiscounts: totalDiscountsGiven,
       todayTransactions: transactionSummary._count.id || 0,
       todayItemsSold: itemsSoldSummary._sum.quantity || 0,
@@ -428,6 +439,14 @@ export const getAdvancedReports = async (req, res) => {
       _sum: { amount: true },
     });
 
+    const storeCashSummary = await prisma.storeCashHistory.aggregate({
+      where: {
+        createdAt: { gte: start, lte: end },
+        type: "IN",
+      },
+      _sum: { amount: true },
+    });
+
     // 3. Data Produk Terjual (Agregasi per Produk)
     const aggregatedProducts = await prisma.transactionDetail.groupBy({
       by: ['productId'],
@@ -488,7 +507,10 @@ export const getAdvancedReports = async (req, res) => {
     const totalRevenue = Number(summary._sum.finalAmount || 0);
     const totalGrossProfit = Number(summary._sum.totalMargin || 0);
     const totalExpenses = Number(expenseSummary._sum.amount || 0);
-    const totalNetProfit = totalGrossProfit - totalExpenses;
+    const totalStoreCashAllocated = Number(storeCashSummary._sum.amount || 0);
+    
+    // Net profit excludes Store Cash Allocation based on Option 2
+    const totalNetProfit = totalGrossProfit - totalExpenses - totalStoreCashAllocated;
 
     res.json({
       summary: {
@@ -496,6 +518,7 @@ export const getAdvancedReports = async (req, res) => {
         totalProfit: totalGrossProfit, // fallback for client
         totalGrossProfit: totalGrossProfit,
         totalExpenses: totalExpenses,
+        totalStoreCashAllocated: totalStoreCashAllocated,
         totalNetProfit: totalNetProfit,
         totalOrders: summary._count.id || 0,
       },

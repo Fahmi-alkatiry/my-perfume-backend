@@ -3,6 +3,7 @@ import { Router } from 'express';
 import {
   getExpenses,
   createExpense,
+  updateExpense,
   deleteExpense,
 } from '../controllers/expense.controller.js';
 
@@ -19,6 +20,7 @@ router.route('/expenses')
 
 // --- Rute Detail Pengeluaran ---
 router.route('/expenses/:id')
+  .put(protect, admin, updateExpense)    // PUT: Ubah pengeluaran
   .delete(protect, admin, deleteExpense); // DELETE: Hapus pengeluaran
 
 export default router;
