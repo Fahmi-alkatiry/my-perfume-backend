@@ -9,8 +9,7 @@ export const getAllCustomers = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const search = req.query.search || "";
-
+    const search = (req.query.search || "").trim();
     // sorting
     const sort = req.query.sort || "name"; // field
     const order = req.query.order || "asc"; // asc | desc
@@ -23,6 +22,7 @@ export const getAllCustomers = async (req, res) => {
           OR: [
             { name: { contains: search } },
             { phoneNumber: { contains: search } },
+            {nfcCardId: { contains: search } },
           ],
         }
       : {};
@@ -50,6 +50,8 @@ export const getAllCustomers = async (req, res) => {
         limit,
       },
     });
+    console.log(`[GetAllCustomers] Page: ${page}, Limit: ${limit}, Search: "${search}", Sort: ${sort} ${order}`);
+    console.log("Search Query:", JSON.stringify(search));
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Gagal mengambil data pelanggan" });
