@@ -2,6 +2,23 @@
 import { prisma } from "../lib/prisma.js";
 import { sendWAMessage } from "../services/whatsapp.service.js";
 
+const standardizeNfcId = (id) => {
+  if (!id) return null;
+  let rawId = String(id).trim().toLowerCase();
+
+  // JIKA INPUT DARI HP (ada tanda titik dua)
+  if (rawId.includes(":")) {
+    const bytes = rawId.split(":");
+    // Balik urutannya (Little Endian) seperti cara kerja USB Reader
+    const reversedHex = bytes.reverse().join(""); 
+    // Ubah Hex ke Decimal agar sama dengan USB Reader
+    return parseInt(reversedHex, 16).toString();
+  }
+
+  // JIKA INPUT DARI USB (sudah angka desimal)
+  return rawId;
+};
+
 /**
  * @desc    Mendapatkan semua pelanggan (dengan Pagination & Search)
  */
@@ -132,15 +149,27 @@ export const getCustomerById = async (req, res) => {
  */
 export const updateCustomer = async (req, res) => {
   try {
-    const { id } = req.params;
-    const updatedCustomer = await prisma.customer.update({
+   const { id } = req.params;
+    const { nfcCardId, ...otherData } = req.body;
+
+    const dataToUpdate = { ...otherData };
+    
+    // Normalisasi ID sebelum masuk ke database
+    if (nfcCardId !== undefined) {
+      dataToUpdate.nfcCardId = standardizeNfcId(nfcCardId);
+    }
+
+   const updatedCustomer = await prisma.customer.update({
       where: { id: Number(id) },
-      data: req.body,
+      data: dataToUpdate,
     });
+    console.log(`[UpdateCustomer] ID: ${id}, Data: ${JSON.stringify(dataToUpdate)}`);
+
     res.json(updatedCustomer);
+
   } catch (error) {
     if (error.code === "P2002") {
-      return res.status(400).json({ error: "Nomor HP sudah terdaftar." });
+      return res.status(400).json({ error: "Nomor HP atau Kartu NFC sudah terdaftar." });
     }
     if (error.code === "P2025") {
       return res.status(404).json({ error: "Pelanggan tidak ditemukan" });
