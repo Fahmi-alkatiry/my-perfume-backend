@@ -315,6 +315,7 @@ export const getLapsedCustomers = async (req, res) => {
  */
 export const getCustomerByNfcId = async (req, res) => {
   const { nfcId } = req.params;
+  console.log(`[GetCustomerByNfcId] Mencari pelanggan dengan NFC ID: ${nfcId}`);
   
   try {
     const standardizedNfcId = standardizeNfcId(nfcId);
