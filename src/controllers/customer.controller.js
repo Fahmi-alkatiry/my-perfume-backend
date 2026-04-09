@@ -315,9 +315,11 @@ export const getLapsedCustomers = async (req, res) => {
  */
 export const getCustomerByNfcId = async (req, res) => {
   const { nfcId } = req.params;
+  
   try {
+    const standardizedNfcId = standardizeNfcId(nfcId);
     const customer = await prisma.customer.findUnique({
-      where: { nfcCardId: nfcId }
+      where: { nfcCardId: standardizedNfcId }
     });
     
     if (!customer) return res.status(404).json({ error: "Kartu tidak terdaftar" });
