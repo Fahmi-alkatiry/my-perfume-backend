@@ -49,6 +49,11 @@ app.use('/api/store-cash', storeCashRoutes);
 
 
 
+import scheduleLapsedCustomerReminders from './cron/reminder.cron.js';
+
+// Jalankan cron scheduler
+scheduleLapsedCustomerReminders();
+
 // Jalankan server
 app.listen(port, () => {
   console.log(`[Server]: API running at http://localhost:${port}`);
