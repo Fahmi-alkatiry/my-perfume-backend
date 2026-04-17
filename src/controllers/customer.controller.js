@@ -6,17 +6,19 @@ const standardizeNfcId = (id) => {
   if (!id) return null;
   let rawId = String(id).trim().toLowerCase();
 
-  // JIKA INPUT DARI HP (ada tanda titik dua)
+  // JIKA INPUT DARI HP (Hexadecimal dengan titik dua, misal: 06:7B:6E:09)
   if (rawId.includes(":")) {
     const bytes = rawId.split(":");
-    // Balik urutannya (Little Endian) seperti cara kerja USB Reader
+    // Balik urutannya (Little Endian) agar sama dengan cara baca IC di USB Reader
     const reversedHex = bytes.reverse().join(""); 
-    // Ubah Hex ke Decimal agar sama dengan USB Reader
-    return parseInt(reversedHex, 16).toString();
+    
+    // Ubah Hex ke Decimal DAN tambahkan nol di depan agar genap 10 digit
+    return parseInt(reversedHex, 16).toString().padStart(10, '0');
   }
 
-  // JIKA INPUT DARI USB (sudah angka desimal)
-  return rawId;
+  // JIKA INPUT DARI USB (Sudah Desimal)
+  // Tetap paksa ke 10 digit untuk jaga-jaga jika ada reader yang membuang nol di depan
+  return rawId.padStart(10, '0');
 };
 
 /**
