@@ -58,6 +58,9 @@ export const getReportSummary = async (req, res) => {
       where: {
         createdAt: { gte: startOfToday, lt: endOfToday },
         type: "IN",
+        transaction: {
+          status: "COMPLETED",
+        },
       },
       _sum: { amount: true },
     });
@@ -443,6 +446,9 @@ export const getAdvancedReports = async (req, res) => {
       where: {
         createdAt: { gte: start, lte: end },
         type: "IN",
+        transaction: {
+          status: "COMPLETED",
+        },
       },
       _sum: { amount: true },
     });
