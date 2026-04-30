@@ -332,3 +332,44 @@ export const getCustomerByNfcId = async (req, res) => {
     res.status(500).json({ error: "Gagal mencari pelanggan berdasarkan kartu NFC" });
   }
 };
+
+/**
+ * @desc    Mendapatkan data lengkap pelanggan (termasuk history) berdasarkan NFC ID untuk Publik
+ * @route   GET /api/public/customers/nfc/:nfcId
+ */
+export const getPublicCustomerByNfcId = async (req, res) => {
+  const { nfcId } = req.params;
+  console.log(`[GetPublicCustomerByNfcId] Mencari pelanggan publik dengan NFC ID: ${nfcId}`);
+  
+  try {
+    const standardizedNfcId = standardizeNfcId(nfcId);
+    const customer = await prisma.customer.findUnique({
+      where: { nfcCardId: standardizedNfcId },
+      include: {
+        transactions: {
+          where: { status: "COMPLETED" },
+          orderBy: { createdAt: "desc" },
+          take: 20, // Ambil 20 transaksi terakhir
+          include: {
+            details: {
+              include: {
+                product: {
+                  select: { name: true }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    if (!customer) return res.status(404).json({ error: "Pelanggan dengan kartu ini tidak ditemukan" });
+    
+    // Jangan kirimkan password/data sensitif jika ada (saat ini di model Customer tidak ada password)
+    res.json(customer);
+  } catch (error) {
+    console.error("[GetPublicCustomerByNfcId Error]:", error);
+    res.status(500).json({ error: "Gagal mencari data pelanggan publik berdasarkan kartu NFC" });
+  }
+};
+

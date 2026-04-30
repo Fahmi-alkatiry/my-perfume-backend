@@ -3,9 +3,9 @@ import { prisma } from "../lib/prisma.js";
 import { sendBroadcastBatch } from "../services/whatsapp.service.js";
 
 const scheduleLapsedCustomerReminders = () => {
-  // Jalankan asinkronus setiap jam 09:00 pagi setiap hari zona waktu server
-  cron.schedule("0 9 * * *", async () => {
-    console.log("[CRON] Menjalankan pengecekan lapsed customers (09:00)...");
+  // Jalankan asinkronus setiap jam 10:00 pagi setiap hari zona waktu server
+  cron.schedule("0 10 * * *", async () => {
+    console.log("[CRON] Menjalankan pengecekan lapsed customers (10:00)...");
     try {
       await sendReminders(30, "1 bulan");
       await sendReminders(60, "2 bulan");
@@ -15,7 +15,7 @@ const scheduleLapsedCustomerReminders = () => {
       console.error("[CRON Error]:", error);
     }
   });
-  console.log("[CRON] Jadwal Lapsed Customer Reminder telah diaktifkan (09:00 AM).");
+  console.log("[CRON] Jadwal Lapsed Customer Reminder telah diaktifkan (10:00 AM).");
 };
 
 const sendReminders = async (days, monthString) => {

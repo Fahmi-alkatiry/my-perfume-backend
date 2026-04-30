@@ -10,6 +10,7 @@ import {
   getCustomerPointHistory,
   getLapsedCustomers,
   getCustomerByNfcId,
+  getPublicCustomerByNfcId,
 } from "../controllers/customer.controller.js";
 
 // --- 1. IMPOR MIDDLEWARE ---
@@ -25,6 +26,9 @@ router
 // .post( createCustomer); // Siapapun (Kasir) bisa BUAT pelanggan baru
 router.get("/customers/lapsed", protect, getLapsedCustomers);
 router.get("/customers/nfc/:nfcId", protect, getCustomerByNfcId);
+
+// Route Publik
+router.get("/public/customers/nfc/:nfcId", getPublicCustomerByNfcId);
 
 router
   .route("/customers/:id")
