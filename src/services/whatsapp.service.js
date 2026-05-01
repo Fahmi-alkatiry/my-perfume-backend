@@ -126,8 +126,8 @@ export const sendBroadcastBatch = async (
         }
         if (phone.startsWith("0")) phone = "62" + phone.slice(1);
 
-        // Delay antar pesan agar natural (Safe mode)
-        const delay = Math.floor(Math.random() * (14000 - 6000 + 1)) + 6000;
+        // Delay antar pesan 5 menit (300000 ms) sesuai permintaan
+        const delay = 300000;
         await wait(delay);
 
         const result = await safeSend(phone, personalizedMessage);
