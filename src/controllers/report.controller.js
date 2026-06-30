@@ -431,7 +431,7 @@ export const getAdvancedReports = async (req, res) => {
     // 2. Ringkasan Utama (Aggregasi)
     const summary = await prisma.transaction.aggregate({
       where: whereClause,
-      _sum: { finalAmount: true, totalMargin: true },
+      _sum: { finalAmount: true, totalMargin: true, discountByPoints: true, discountByVoucher: true, totalDiscount: true },
       _count: { id: true },
     });
 
@@ -518,6 +518,12 @@ export const getAdvancedReports = async (req, res) => {
     // Net profit excludes Store Cash Allocation based on Option 2
     const totalNetProfit = totalGrossProfit - totalExpenses - totalStoreCashAllocated;
 
+    // Total diskon = diskon poin + diskon voucher + totalDiscount (manual item discount jika ada)
+    const totalDiscountPoints = Number(summary._sum.discountByPoints || 0);
+    const totalDiscountVoucher = Number(summary._sum.discountByVoucher || 0);
+    const totalDiscountManual = Number(summary._sum.totalDiscount || 0);
+    const totalDiscounts = totalDiscountPoints + totalDiscountVoucher + totalDiscountManual;
+
     res.json({
       summary: {
         totalRevenue: totalRevenue,
@@ -526,6 +532,7 @@ export const getAdvancedReports = async (req, res) => {
         totalExpenses: totalExpenses,
         totalStoreCashAllocated: totalStoreCashAllocated,
         totalNetProfit: totalNetProfit,
+        totalDiscounts: totalDiscounts,
         totalOrders: summary._count.id || 0,
       },
       products: productsWithNames, 

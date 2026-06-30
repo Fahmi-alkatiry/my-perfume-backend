@@ -15,7 +15,7 @@ import expenseRoutes from './routes/expense.routes.js';
 import voucherRoutes from './routes/voucher.routes.js';
 import broadcastRoutes from './routes/broadcast.routes.js';
 import rfmRoutes from './routes/rfm.routes.js';
-import aiRoutes from './routes/ai.routes.js';
+// import aiRoutes from './routes/ai.routes.js';
 import storeCashRoutes from './routes/storeCash.routes.js';
 
 const app = express();
@@ -44,7 +44,7 @@ app.use('/api', expenseRoutes);
 app.use('/api', voucherRoutes);
 app.use('/api', broadcastRoutes); // <-- GUNAKAN INI
 app.use('/api', rfmRoutes);
-app.use('/api', aiRoutes);
+// app.use('/api', aiRoutes);
 app.use('/api/store-cash', storeCashRoutes);
 
 
