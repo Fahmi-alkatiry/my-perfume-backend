@@ -8,6 +8,7 @@ import productRoutes from "./routes/product.routes.js";
 import transactionRoutes from "./routes/transaction.routes.js";
 import customerRoutes from "./routes/customer.routes.js";
 import authRoutes from "./routes/auth.routes.js";
+import userRoutes from "./routes/user.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 import paymentMethodRoutes from './routes/paymentMethod.routes.js';
 import shiftRoutes from './routes/shift.routes.js';
@@ -34,6 +35,7 @@ app.get("/", (req, res) => {
 // Semua URL di product.routes.js akan diawali dengan /api
 // Contoh: GET /api/products
 app.use("/api", authRoutes);
+app.use("/api", userRoutes);
 app.use("/api", productRoutes);
 app.use("/api", transactionRoutes);
 app.use("/api", customerRoutes);
