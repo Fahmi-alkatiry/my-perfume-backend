@@ -568,3 +568,133 @@ export const assignCustomerToTransaction = async (req, res) => {
     res.status(400).json({ error: error.message || "Gagal update transaksi" });
   }
 };
+
+
+/**
+ * @desc    Mendapatkan daftar transaksi khusus hari ini (untuk Kasir - tanpa profit/margin)
+ * @route   GET /api/transactions/today
+ * @access  Private (CASHIER & ADMIN)
+ */
+export const getTodayTransactions = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const search = req.query.search ? req.query.search.trim() : "";
+    const status = req.query.status ? req.query.status.trim() : "";
+
+    // Kunci rentang waktu HANYA untuk hari ini (00:00:00 - 23:59:59)
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const where = {
+      createdAt: {
+        gte: startOfToday,
+        lte: endOfToday,
+      },
+    };
+
+    if (status && status !== "ALL") {
+      where.status = status;
+    }
+
+    if (search) {
+      const searchConditions = [];
+      const numericId = parseInt(search);
+      if (!isNaN(numericId)) {
+        searchConditions.push({ id: numericId });
+      }
+      searchConditions.push({
+        customer: {
+          name: { contains: search },
+        },
+      });
+      where.OR = searchConditions;
+    }
+
+    // Jalankan query transaksi dan agregat ringkasan hari ini
+    // Catatan: Kolom totalMargin, purchasePriceAtTransaction, totalCostOfGoods TIDAK disertakan demi privasi kasir
+    const [transactions, totalCount, summaryAggregate] = await prisma.$transaction([
+      prisma.transaction.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: {
+          createdAt: "desc",
+        },
+        select: {
+          id: true,
+          createdAt: true,
+          totalPrice: true,
+          totalDiscount: true,
+          discountByPoints: true,
+          discountByVoucher: true,
+          finalAmount: true,
+          pointsEarned: true,
+          pointsUsed: true,
+          status: true,
+          customer: {
+            select: { id: true, name: true, phoneNumber: true },
+          },
+          user: {
+            select: { id: true, name: true },
+          },
+          paymentMethod: {
+            select: { id: true, name: true },
+          },
+          details: {
+            select: {
+              id: true,
+              quantity: true,
+              priceAtTransaction: true,
+              discount: true,
+              subtotal: true,
+              product: {
+                select: { id: true, name: true, productCode: true },
+              },
+            },
+          },
+        },
+      }),
+      prisma.transaction.count({ where }),
+      prisma.transaction.aggregate({
+        where: {
+          createdAt: {
+            gte: startOfToday,
+            lte: endOfToday,
+          },
+          status: "COMPLETED",
+        },
+        _sum: {
+          finalAmount: true,
+        },
+        _count: {
+          id: true,
+        },
+      }),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    res.json({
+      data: transactions,
+      pagination: {
+        totalCount,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
+      summary: {
+        todayRevenue: Number(summaryAggregate._sum.finalAmount || 0),
+        totalCompletedOrders: summaryAggregate._count.id || 0,
+        totalOrders: totalCount,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil transaksi hari ini:", error);
+    res.status(500).json({ error: "Gagal memuat data transaksi hari ini" });
+  }
+};

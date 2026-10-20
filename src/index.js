@@ -18,6 +18,10 @@ import broadcastRoutes from './routes/broadcast.routes.js';
 import rfmRoutes from './routes/rfm.routes.js';
 // import aiRoutes from './routes/ai.routes.js';
 import storeCashRoutes from './routes/storeCash.routes.js';
+import whatsappRoutes from './routes/whatsapp.routes.js';
+
+import scheduleLapsedCustomerReminders from './cron/reminder.cron.js';
+import { initWhatsApp } from './services/whatsapp.service.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -32,8 +36,6 @@ app.get("/", (req, res) => {
 });
 
 // Gunakan router produk kita
-// Semua URL di product.routes.js akan diawali dengan /api
-// Contoh: GET /api/products
 app.use("/api", authRoutes);
 app.use("/api", userRoutes);
 app.use("/api", productRoutes);
@@ -44,20 +46,19 @@ app.use("/api", paymentMethodRoutes);
 app.use("/api", shiftRoutes);
 app.use('/api', expenseRoutes);
 app.use('/api', voucherRoutes);
-app.use('/api', broadcastRoutes); // <-- GUNAKAN INI
+app.use('/api', broadcastRoutes);
 app.use('/api', rfmRoutes);
 // app.use('/api', aiRoutes);
 app.use('/api/store-cash', storeCashRoutes);
-
-
-
-import scheduleLapsedCustomerReminders from './cron/reminder.cron.js';
+app.use('/api', whatsappRoutes);
 
 // Jalankan cron scheduler
 scheduleLapsedCustomerReminders();
 
+// Inisialisasi koneksi WhatsApp Baileys
+initWhatsApp();
+
 // Jalankan server
 app.listen(port, () => {
   console.log(`[Server]: API running at http://localhost:${port}`);
-
 });
