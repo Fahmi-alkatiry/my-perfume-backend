@@ -11,6 +11,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import "dotenv/config";
+import { prisma } from "../lib/prisma.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -160,6 +161,94 @@ export const connectToWhatsApp = async () => {
       }
     });
 
+    // Listener Pesan Masuk (Auto-Reply Pendaftaran Member)
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") return;
+
+      for (const msg of messages) {
+        try {
+          // Abaikan jika bukan pesan teks atau dikirim oleh diri sendiri
+          if (!msg.message || msg.key.fromMe) continue;
+
+          const remoteJid = msg.key.remoteJid;
+          // Abaikan status broadcast atau grup WhatsApp (hanya private chat)
+          if (!remoteJid || remoteJid === "status@broadcast" || remoteJid.endsWith("@g.us")) {
+            continue;
+          }
+
+          // Ekstrak pesan teks (mendukung format pesan biasa maupun extended)
+          const text = (
+            msg.message?.conversation ||
+            msg.message?.extendedTextMessage?.text ||
+            ""
+          ).trim();
+
+          const lowerText = text.toLowerCase();
+          const isMemberKeyword = lowerText === "member" || lowerText === "daftar member" || lowerText === "join member";
+
+          if (isMemberKeyword) {
+            // Ekstrak nomor WhatsApp pengirim (contoh: "6289668125652@s.whatsapp.net" -> "6289668125652")
+            const rawPhone = remoteJid.split("@")[0].split(":")[0];
+            const cleanPhone = rawPhone.replace(/\D/g, "");
+
+            console.log(`[WhatsApp/Bot] Permintaan member diterima dari ${cleanPhone}`);
+
+            // Cek apakah nomor sudah terdaftar di database pelanggan
+            let existingCustomer = null;
+            try {
+              const variations = [cleanPhone];
+              if (cleanPhone.startsWith("62")) {
+                variations.push("0" + cleanPhone.slice(2));
+                variations.push("+" + cleanPhone);
+              } else if (cleanPhone.startsWith("0")) {
+                variations.push("62" + cleanPhone.slice(1));
+              }
+
+              existingCustomer = await prisma.customer.findFirst({
+                where: {
+                  phoneNumber: { in: variations },
+                },
+              });
+            } catch (dbErr) {
+              console.error("[WhatsApp/Bot] Gagal memeriksa data pelanggan di DB:", dbErr.message);
+            }
+
+            if (existingCustomer) {
+              // Jika nomor sudah terdaftar sebagai member
+              const alreadyMemberMsg = 
+`🌸 *Member My Perfume* 🌸
+
+Halo Kak *${existingCustomer.name}*! 👋
+Nomor WhatsApp Kakak (*+${cleanPhone}*) sudah terdaftar sebagai member resmi My Perfume ✨
+
+💰 Poin kamu saat ini: *${existingCustomer.points || 0} Poin*
+Yuk, sebutkan nomor HP ini saat transaksi di kasir untuk kumpulkan lebih banyak poin & promo menarik! 🎁`;
+
+              await sock.sendMessage(remoteJid, { text: alreadyMemberMsg }, { quoted: msg });
+              console.log(`[WhatsApp/Bot] Info member sudah terdaftar dikirim ke ${cleanPhone}`);
+            } else {
+              // Jika nomor belum terdaftar, kirim tautan registrasi
+              const registerMsg = 
+`🌸 *Member My Perfume* 🌸
+
+Terima kasih sudah tertarik bergabung! Yuk, lengkapi data dirimu melalui link di bawah ini:
+
+https://myperfumee.my.id/register?phone=${cleanPhone}
+
+Nikmati keuntungan menarik:
+✨ Bonus Poin tiap belanja
+✨ Info Promo Tercepat`;
+
+              await sock.sendMessage(remoteJid, { text: registerMsg }, { quoted: msg });
+              console.log(`[WhatsApp/Bot] Link pendaftaran member berhasil dikirim ke ${cleanPhone}`);
+            }
+          }
+        } catch (msgErr) {
+          console.error("[WhatsApp/Bot] Error saat memproses pesan masuk:", msgErr);
+        }
+      }
+    });
+
     isConnecting = false;
     return sock;
   } catch (error) {
@@ -203,6 +292,7 @@ export const restartWhatsApp = async () => {
     if (sock) {
       sock.ev.removeAllListeners("connection.update");
       sock.ev.removeAllListeners("creds.update");
+      sock.ev.removeAllListeners("messages.upsert");
       sock.end();
       sock = null;
     }
@@ -234,6 +324,7 @@ export const logoutWhatsApp = async () => {
     if (sock) {
       sock.ev.removeAllListeners("connection.update");
       sock.ev.removeAllListeners("creds.update");
+      sock.ev.removeAllListeners("messages.upsert");
       await Promise.race([
         sock.logout().catch(() => {}),
         new Promise((resolve) => setTimeout(resolve, 2000)),
