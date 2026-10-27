@@ -23,6 +23,7 @@ if (!fs.existsSync(AUTH_DIR)) {
 }
 
 let sock = null;
+let authState = null;
 let isConnected = false;
 let isConnecting = false;
 let isManualRestart = false;
@@ -46,6 +47,91 @@ export const formatPhone = (phone) => {
 };
 
 /**
+ * Ekstrak nomor telepon asli pelanggan dari pesan WhatsApp (mengatasi isu WhatsApp Multi-Device @lid)
+ */
+export const resolvePhoneNumberFromMessage = async (msg, currentAuthState) => {
+  const key = msg.key || {};
+  const remoteJid = key.remoteJid || "";
+  const remoteJidAlt = key.remoteJidAlt || "";
+  const participantAlt = key.participantAlt || "";
+  const participant = key.participant || "";
+
+  // 1. Cek candidate yang berakhiran '@s.whatsapp.net' (Phone Number JID)
+  const jidCandidates = [remoteJidAlt, participantAlt, remoteJid, participant];
+  for (const jid of jidCandidates) {
+    if (jid && typeof jid === "string" && jid.endsWith("@s.whatsapp.net")) {
+      const pn = jid.split("@")[0].split(":")[0].replace(/\D/g, "");
+      // Nomor telepon asli umumnya antara 9 sampai 14 digit dan bukan LID (LID berawalan 250... 15 digit)
+      if (pn && pn.length >= 9 && pn.length <= 14) {
+        return pn;
+      }
+    }
+  }
+
+  // 2. Jika remoteJid atau participant berakhiran '@lid', lakukan reverse lookup dari Baileys auth keys
+  const lidJid = remoteJid.endsWith("@lid") ? remoteJid : (participant.endsWith("@lid") ? participant : null);
+  if (lidJid) {
+    const lidUser = lidJid.split("@")[0].split(":")[0].replace(/\D/g, "");
+
+    // Coba via signalRepository Baileys jika ada
+    try {
+      if (sock?.signalRepository?.lidMapping?.getPNForLID) {
+        const resolvedPn = await sock.signalRepository.lidMapping.getPNForLID(lidJid);
+        if (resolvedPn) {
+          const clean = resolvedPn.split("@")[0].split(":")[0].replace(/\D/g, "");
+          if (clean && clean.length >= 9 && clean.length <= 14) {
+            return clean;
+          }
+        }
+      }
+    } catch (e) {
+      // lanjut ke fallback
+    }
+
+    // Coba via currentAuthState.keys (lid-mapping reverse)
+    try {
+      if (currentAuthState?.keys?.get) {
+        const mapping = await currentAuthState.keys.get("lid-mapping", [`${lidUser}_reverse`]);
+        const mappedPn = mapping?.[`${lidUser}_reverse`];
+        if (mappedPn) {
+          const clean = String(mappedPn).split("@")[0].split(":")[0].replace(/\D/g, "");
+          if (clean && clean.length >= 9 && clean.length <= 14) {
+            return clean;
+          }
+        }
+      }
+    } catch (e) {
+      // lanjut ke fallback
+    }
+
+    // Coba baca langsung file reverse mapping di direktori auth
+    try {
+      const reverseFilePath = path.resolve(AUTH_DIR, `lid-mapping-${lidUser}_reverse.json`);
+      if (fs.existsSync(reverseFilePath)) {
+        const fileContent = fs.readFileSync(reverseFilePath, "utf8");
+        const parsed = JSON.parse(fileContent);
+        const clean = String(parsed).split("@")[0].split(":")[0].replace(/\D/g, "");
+        if (clean && clean.length >= 9 && clean.length <= 14) {
+          return clean;
+        }
+      }
+    } catch (e) {
+      // lanjut ke fallback
+    }
+  }
+
+  // 3. Fallback jika bukan @lid
+  if (!remoteJid.endsWith("@lid")) {
+    const fallback = remoteJid.split("@")[0].split(":")[0].replace(/\D/g, "");
+    if (fallback.length >= 9 && fallback.length <= 14) {
+      return fallback;
+    }
+  }
+
+  return null;
+};
+
+/**
  * Inisialisasi koneksi Baileys Socket
  */
 export const connectToWhatsApp = async () => {
@@ -64,6 +150,7 @@ export const connectToWhatsApp = async () => {
   try {
     const logger = pino({ level: process.env.BAILEYS_LOG_LEVEL || "silent" });
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+    authState = state;
     const { version, isLatest } = await fetchLatestBaileysVersion();
 
     console.log(
@@ -187,60 +274,68 @@ export const connectToWhatsApp = async () => {
           const isMemberKeyword = lowerText === "member" || lowerText === "daftar member" || lowerText === "join member";
 
           if (isMemberKeyword) {
-            // Ekstrak nomor WhatsApp pengirim (contoh: "6289668125652@s.whatsapp.net" -> "6289668125652")
-            const rawPhone = remoteJid.split("@")[0].split(":")[0];
-            const cleanPhone = rawPhone.replace(/\D/g, "");
+            // Ekstrak nomor WhatsApp pengirim dengan akurat (mengatasi nomor LID internal WhatsApp)
+            const cleanPhone = await resolvePhoneNumberFromMessage(msg, authState);
 
-            console.log(`[WhatsApp/Bot] Permintaan member diterima dari ${cleanPhone}`);
+            console.log(`[WhatsApp/Bot] Permintaan member dari JID: ${remoteJid}, Terdeteksi No HP: ${cleanPhone || "UNRESOLVED_LID"}`);
 
             // Cek apakah nomor sudah terdaftar di database pelanggan
             let existingCustomer = null;
-            try {
-              const variations = [cleanPhone];
-              if (cleanPhone.startsWith("62")) {
-                variations.push("0" + cleanPhone.slice(2));
-                variations.push("+" + cleanPhone);
-              } else if (cleanPhone.startsWith("0")) {
-                variations.push("62" + cleanPhone.slice(1));
-              }
+            if (cleanPhone) {
+              try {
+                const variations = [cleanPhone];
+                if (cleanPhone.startsWith("62")) {
+                  variations.push("0" + cleanPhone.slice(2));
+                  variations.push("+" + cleanPhone);
+                } else if (cleanPhone.startsWith("0")) {
+                  variations.push("62" + cleanPhone.slice(1));
+                }
 
-              existingCustomer = await prisma.customer.findFirst({
-                where: {
-                  phoneNumber: { in: variations },
-                },
-              });
-            } catch (dbErr) {
-              console.error("[WhatsApp/Bot] Gagal memeriksa data pelanggan di DB:", dbErr.message);
+                existingCustomer = await prisma.customer.findFirst({
+                  where: {
+                    phoneNumber: { in: variations },
+                  },
+                });
+              } catch (dbErr) {
+                console.error("[WhatsApp/Bot] Gagal memeriksa data pelanggan di DB:", dbErr.message);
+              }
             }
 
             if (existingCustomer) {
               // Jika nomor sudah terdaftar sebagai member
+              const displayPhone = cleanPhone || existingCustomer.phoneNumber;
               const alreadyMemberMsg = 
 `🌸 *Member My Perfume* 🌸
 
 Halo Kak *${existingCustomer.name}*! 👋
-Nomor WhatsApp Kakak (*+${cleanPhone}*) sudah terdaftar sebagai member resmi My Perfume ✨
+Nomor WhatsApp Kakak (*+${displayPhone}*) sudah terdaftar sebagai member resmi My Perfume ✨
 
 💰 Poin kamu saat ini: *${existingCustomer.points || 0} Poin*
 Yuk, sebutkan nomor HP ini saat transaksi di kasir untuk kumpulkan lebih banyak poin & promo menarik! 🎁`;
 
               await sock.sendMessage(remoteJid, { text: alreadyMemberMsg }, { quoted: msg });
-              console.log(`[WhatsApp/Bot] Info member sudah terdaftar dikirim ke ${cleanPhone}`);
+              console.log(`[WhatsApp/Bot] Info member sudah terdaftar dikirim ke ${displayPhone}`);
             } else {
-              // Jika nomor belum terdaftar, kirim tautan registrasi
+              // Jika nomor belum terdaftar, buat tautan registrasi
+              // Jika nomor HP berhasil terdeteksi, tambahkan query ?phone=...
+              // Jika tidak terdeteksi (LID murni), arahkan ke halaman registrasi umum
+              const registerUrl = cleanPhone
+                ? `https://myperfumee.my.id/register?phone=${cleanPhone}`
+                : `https://myperfumee.my.id/register`;
+
               const registerMsg = 
 `🌸 *Member My Perfume* 🌸
 
 Terima kasih sudah tertarik bergabung! Yuk, lengkapi data dirimu melalui link di bawah ini:
 
-https://myperfumee.my.id/register?phone=${cleanPhone}
+${registerUrl}
 
 Nikmati keuntungan menarik:
 ✨ Bonus Poin tiap belanja
 ✨ Info Promo Tercepat`;
 
               await sock.sendMessage(remoteJid, { text: registerMsg }, { quoted: msg });
-              console.log(`[WhatsApp/Bot] Link pendaftaran member berhasil dikirim ke ${cleanPhone}`);
+              console.log(`[WhatsApp/Bot] Link pendaftaran member berhasil dikirim ke ${cleanPhone || remoteJid}`);
             }
           }
         } catch (msgErr) {
